@@ -95,12 +95,13 @@ type ResultShape = {
   };
 };
 
-function parseCSV(text: string): Array<{ url: string; githubUrl?: string }> {
+function parseCSV(text: string): Array<{ name: string; url: string; githubUrl?: string }> {
   const lines = text.trim().split("\n");
   const headers = (lines[0] ?? "")
     .toLowerCase()
     .split(",")
     .map((h) => h.trim());
+  const nameIndex = headers.indexOf("name");
   const urlIndex = headers.indexOf("url");
   const githubIndex = headers.indexOf("github_url");
   if (urlIndex === -1) return [];
@@ -108,7 +109,14 @@ function parseCSV(text: string): Array<{ url: string; githubUrl?: string }> {
     .slice(1)
     .map((line) => {
       const cols = line.split(",").map((c) => c.trim());
+      let fallbackName = "";
+      try {
+        fallbackName = new URL(cols[urlIndex] ?? "").hostname;
+      } catch {
+        fallbackName = "";
+      }
       return {
+        name: cols[nameIndex] || fallbackName,
         url: cols[urlIndex] ?? "",
         githubUrl: githubIndex >= 0 ? cols[githubIndex] : undefined,
       };
@@ -150,11 +158,12 @@ export default function Home() {
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
 
   const [csvFilename, setCsvFilename] = useState<string | null>(null);
-  const [csvRows, setCsvRows] = useState<Array<{ url: string; githubUrl?: string }>>(
-    [],
-  );
+  const [csvRows, setCsvRows] = useState<
+    Array<{ name: string; url: string; githubUrl?: string }>
+  >([]);
   const [bulkResults, setBulkResults] = useState<
     Array<{
+      name: string;
       url: string;
       githubUrl?: string;
       status: "pending" | "running" | "done" | "error";
@@ -317,6 +326,7 @@ export default function Home() {
 
     setBulkResults(
       rows.map((r) => ({
+        name: r.name,
         url: r.url,
         githubUrl: r.githubUrl,
         status: "pending" as const,
@@ -385,10 +395,11 @@ export default function Home() {
       .slice()
       .sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
 
-    const header = ["Rank", "URL", "Score", "Top Finding", "Verdict"].join(",");
+    const header = ["Rank", "Name", "URL", "Score", "Top Finding", "Verdict"].join(",");
     const lines = done.map((r, idx) =>
       [
         String(idx + 1),
+        escapeCsvCell(r.name ?? ""),
         escapeCsvCell(r.url),
         `${r.score}/10`,
         escapeCsvCell(r.topFinding ?? ""),
@@ -801,31 +812,24 @@ export default function Home() {
           <div className="mt-8 grid gap-6 md:grid-cols-3">
             {[
               {
-                n: "01",
                 t: "60-Second Evaluation",
                 d: "Real browser screenshot + Claude vision analysis. No guesswork.",
               },
               {
-                n: "02",
                 t: "Three-Layer Code Analysis",
                 d: "Quality signals, completeness score, and claim vs code honesty checks.",
               },
               {
-                n: "03",
                 t: "Judge + Builder Mode",
                 d: "Organisers evaluate submissions. Builders self-test before judging.",
               },
             ].map((card, i) => {
               const cardClass =
                 i === 0
-                  ? "bg-[#F3F3F3] text-black"
+                  ? "bg-white text-black"
                   : i === 1
                     ? "bg-[#B9FF66] text-black"
                     : "bg-[#191A23] text-white";
-              const numClass =
-                i === 2
-                  ? "text-4xl font-black text-white"
-                  : "text-4xl font-black text-black";
               const titleClass =
                 i === 2
                   ? "mt-4 mb-2 text-xl font-bold text-white"
@@ -836,10 +840,9 @@ export default function Home() {
                   : "text-sm leading-relaxed text-gray-600";
               return (
                 <div
-                  key={card.n}
-                  className={`rounded-2xl border-2 border-black p-8 ${cardClass}`}
+                  key={card.t}
+                  className={`rounded-2xl border-2 border-black p-5 ${cardClass}`}
                 >
-                  <div className={numClass}>{card.n}</div>
                   <h2 className={titleClass}>{card.t}</h2>
                   <p className={descClass}>{card.d}</p>
                 </div>
@@ -1037,7 +1040,7 @@ export default function Home() {
                   </div>
                   <p className="font-bold text-black">Upload submissions.csv</p>
                   <p className="mt-2 text-sm text-gray-600">
-                    Two columns required: url, github_url (optional)
+                    Three columns required: name, url, github_url (optional)
                   </p>
                   {csvFilename ? (
                     <p className="mt-4 text-sm font-semibold text-black">
@@ -1119,13 +1122,10 @@ export default function Home() {
                               if (r.status === "running") rowClass = "animate-pulse bg-[#B9FF66]/10";
                               if (r.status === "error") rowClass = "bg-red-50 text-red-600";
 
-                              let hostname = r.url;
-                              try {
-                                hostname = new URL(r.url).hostname;
-                              } catch {
-                                // ignore
+                              let displayName = r.name || r.url;
+                              if (displayName.length > 30) {
+                                displayName = `${displayName.slice(0, 27)}...`;
                               }
-                              if (hostname.length > 30) hostname = `${hostname.slice(0, 27)}...`;
 
                               const rank =
                                 r.status === "done" ? doneOrder.get(idx) ?? "" : "";
@@ -1158,7 +1158,7 @@ export default function Home() {
                                   <td className="p-4 font-black text-[#B9FF66]">
                                     {rank}
                                   </td>
-                                  <td className="p-4 font-semibold">{hostname}</td>
+                                  <td className="p-4 font-semibold">{displayName}</td>
                                   <td className="p-4">
                                     {r.status === "done" && typeof r.score === "number"
                                       ? `${r.score}/10`
