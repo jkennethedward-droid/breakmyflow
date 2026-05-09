@@ -18,6 +18,31 @@ const RADAR_LABEL_TO_SECTION: Record<string, string> = {
   Technical: "technicalCredibility",
 };
 
+const CustomRadarTooltip = ({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ value: number; payload: { section: string } }>;
+}) => {
+  if (active && payload && payload.length) {
+    const section = payload[0].payload.section;
+    const score = payload[0].value;
+    return (
+      <div className="rounded-xl border-2 border-[#B9FF66] bg-black px-4 py-3 shadow-lg">
+        <p className="mb-1 text-xs font-black uppercase tracking-widest text-[#B9FF66]">
+          {section}
+        </p>
+        <p className="text-3xl font-black leading-none text-white">
+          {score}
+          <span className="text-lg text-gray-400">/10</span>
+        </p>
+      </div>
+    );
+  }
+  return null;
+};
+
 function getApiErrorMessage(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
   if (!("error" in data)) return null;
@@ -479,20 +504,7 @@ export default function Home() {
                   data={radarData}
                 >
                   <PolarGrid gridType="polygon" stroke="#E5E5E5" />
-                  <Tooltip
-                    formatter={(value) => [
-                      `${value ?? ""}/10`,
-                      "Score",
-                    ]}
-                    contentStyle={{
-                      backgroundColor: "#000",
-                      color: "#fff",
-                      borderRadius: "0.5rem",
-                      fontSize: "12px",
-                      padding: "0.5rem 0.75rem",
-                      border: "none",
-                    }}
-                  />
+                  <Tooltip content={<CustomRadarTooltip />} />
                   <PolarAngleAxis
                     dataKey="section"
                     tick={(props) => {
@@ -511,9 +523,11 @@ export default function Home() {
                           textAnchor={textAnchor as "start" | "middle" | "end"}
                           fill="#000000"
                           fontSize={12}
-                          fontWeight={700}
-                          className="cursor-pointer underline"
-                          style={{ cursor: "pointer" }}
+                          fontWeight={800}
+                          style={{
+                            cursor: "pointer",
+                            textDecoration: "underline",
+                          }}
                           onClick={() => focusRadarSection(label)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
@@ -543,6 +557,9 @@ export default function Home() {
                   />
                 </RadarChart>
               </ResponsiveContainer>
+              <p className="mt-2 text-center text-xs text-gray-400">
+                Hover to see scores · Click to jump to section
+              </p>
             </div>
           </div>
 
