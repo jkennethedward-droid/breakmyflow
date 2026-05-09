@@ -1,6 +1,6 @@
 const requestCounts = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT = 10; // requests
-const WINDOW_MS = 60 * 1000; // per minute
+const WINDOW_MS = 60 * 60 * 1000; // per hour
 
 export function checkRateLimit(identifier: string): {
   allowed: boolean;

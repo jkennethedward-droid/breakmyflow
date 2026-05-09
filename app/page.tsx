@@ -63,6 +63,11 @@ type ResultShape = {
   githubAnalyzed?: boolean;
   overallScore?: number;
   judgeQuote?: string;
+  tokenUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCostUSD: string;
+  };
   sections?: {
     firstImpression: ScorecardSectionBase;
     valueProposition: ScorecardSectionBase;
@@ -931,6 +936,14 @@ export default function Home() {
                     >
                       Export as .md
                     </button>
+                  ) : null}
+                  {result?.tokenUsage ? (
+                    <p className="mt-2 text-center text-xs text-gray-400">
+                      This evaluation used{" "}
+                      {result.tokenUsage.inputTokens +
+                        result.tokenUsage.outputTokens}{" "}
+                      tokens (est. ${result.tokenUsage.estimatedCostUSD})
+                    </p>
                   ) : null}
                 </div>
                 <button

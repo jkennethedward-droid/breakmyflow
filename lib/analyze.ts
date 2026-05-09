@@ -32,6 +32,17 @@ export type JudgeReport = {
   judgeQuote: string;
 };
 
+export type EvaluationTokenUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostUSD: string;
+};
+
+export type EvaluationResult = JudgeReport & {
+  tokenUsage: EvaluationTokenUsage;
+  totalCost: number;
+};
+
 let anthropicClient: Anthropic | null = null;
 
 function getAnthropicClient(): Anthropic {
@@ -258,7 +269,7 @@ export async function analyzeSubmission(input: {
   githubAnalysis?: GitHubRepoAnalysis | null;
   mode?: "judge" | "builder";
   customCriteria?: string;
-}): Promise<JudgeReport> {
+}): Promise<EvaluationResult> {
   try {
     const {
       url,
@@ -407,6 +418,25 @@ export async function analyzeSubmission(input: {
         .join("")
         .trim() || "";
 
+    const inputTokens = message.usage.input_tokens ?? 0;
+    const outputTokens = message.usage.output_tokens ?? 0;
+    const inputCost = (inputTokens / 1_000_000) * 3.0;
+    const outputCost = (outputTokens / 1_000_000) * 15.0;
+    const totalCost = inputCost + outputCost;
+
+    console.log(
+      JSON.stringify({
+        event: "evaluation_complete",
+        timestamp: new Date().toISOString(),
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens,
+        estimatedCostUSD: totalCost.toFixed(4),
+        hasGithub: githubAnalysis !== null,
+        url: url.substring(0, 50),
+      }),
+    );
+
     const parsed = extractJsonObject(text);
     const report = normalizeJudgeReport(parsed);
     if (!report) {
@@ -416,7 +446,17 @@ export async function analyzeSubmission(input: {
         }`,
       );
     }
-    return report;
+
+    const estimatedCostUSD = totalCost.toFixed(4);
+    return {
+      ...report,
+      tokenUsage: {
+        inputTokens,
+        outputTokens,
+        estimatedCostUSD,
+      },
+      totalCost,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Claude evaluation failed: ${message}`);

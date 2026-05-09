@@ -16,7 +16,7 @@ export async function POST(request: Request) {
   if (!allowed) {
     return new Response(
       JSON.stringify({
-        error: "Rate limit exceeded. Maximum 10 requests per minute.",
+        error: "Rate limit exceeded. Maximum 10 evaluations per hour per IP.",
       }),
       {
         status: 429,
