@@ -183,6 +183,35 @@ Example: '[HIGH] package.json: openai listed under devDependencies, will fail in
 Example: '[CRITICAL] README.md: still contains default create-next-app boilerplate — no project description'
 `.trim();
 
+const SECURITY_AND_RESILIENCE_ANALYSIS = `
+SECURITY AND RESILIENCE ANALYSIS:
+Check for these specific signals across all provided code files.
+Every finding must name the exact file. No generic observations.
+
+CRITICAL:
+- API keys or tokens hardcoded in any file (patterns: sk-, pk-, Bearer , apiKey:, api_key =, token = followed by a string that is not process.env)
+- Any API route that accepts user input without validation (no zod, no typeof checks, no length limits on incoming strings)
+- Exposed sensitive routes with no authentication check (POST routes that anyone on the internet can call freely)
+
+HIGH:
+- No rate limiting on API routes (no upstash, no rate-limit package, no manual request counting visible anywhere)
+- Missing error boundaries in the frontend (no try/catch around fetch calls in page components)
+- Streaming endpoints with no timeout handling (fetch calls to external APIs with no AbortController or timeout)
+- process.env variables used in code but no .env.example file exists (means the app only runs on the original developer's machine)
+
+MEDIUM:
+- console.log statements left in API route handlers
+- No loading or error states visible in the UI code (silent failures look broken to judges)
+- CORS set to wildcard on sensitive routes
+
+For each security finding, add it to codeSpecific with format:
+'[SECURITY-CRITICAL] filename: specific finding'
+'[SECURITY-HIGH] filename: specific finding'
+'[SECURITY-MEDIUM] filename: specific finding'
+
+If no GitHub was provided, skip this section entirely and return codeSpecific as empty array.
+`.trim();
+
 function formatGitHubContext(g: GitHubRepoAnalysis): string {
   const apiBlock =
     g.apiRouteFiles.length > 0
@@ -266,7 +295,9 @@ export async function analyzeSubmission(input: {
       (githubUrl ? `GitHub Repo URL: ${githubUrl}\n` : "") +
       (customBlock ? `\n${customBlock}` : "") +
       (githubBlock ? `\n${githubBlock}\n` : "") +
-      (githubBlock ? `${TECHNICAL_ANALYSIS_INSTRUCTIONS}\n\n` : "") +
+      (githubBlock
+        ? `${TECHNICAL_ANALYSIS_INSTRUCTIONS}\n\n${SECURITY_AND_RESILIENCE_ANALYSIS}\n\n`
+        : "") +
       "overallScore must be the mathematical average of firstImpression.score, valueProposition.score, demoFlow.score, and technicalCredibility.score, rounded to nearest integer. Do not invent a separate score.\n\n" +
       "Analyse the screenshot provided. Then return ONLY a valid JSON object with exactly this structure, no markdown, no preamble:\n\n" +
       "{\n" +
@@ -295,7 +326,7 @@ export async function analyzeSubmission(input: {
       '      "headline": string,\n' +
       '      "observation": string,\n' +
       '      "flag": string | null,\n' +
-      '      "codeSpecific": [string] (max 5 -- each like "[SEVERITY] filename: finding". If no GitHub provided, return empty array.)\n' +
+      '      "codeSpecific": [string] (max 5 -- include technical [CRITICAL|HIGH|MEDIUM] and security [SECURITY-CRITICAL|SECURITY-HIGH|SECURITY-MEDIUM] prefixes as instructed; each line names a file and a specific finding. If no GitHub provided, return empty array.)\n' +
       "    },\n" +
       '    "verdict": {\n' +
       '      "score": null,\n' +

@@ -115,6 +115,7 @@ export async function POST(request: Request) {
           githubAnalyzed: Boolean(githubUrl) && githubAnalysis !== null,
           screenshotCaptured: true,
           ...analysis,
+          screenshotBase64,
         };
 
         send({ event: "result", data: fullResult });

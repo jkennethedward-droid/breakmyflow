@@ -42,6 +42,7 @@ type VerdictSection = {
 
 type ResultShape = {
   url?: string;
+  screenshotBase64?: string;
   screenshotCaptured?: boolean;
   screenshotError?: string;
   githubAnalyzed?: boolean;
@@ -90,6 +91,9 @@ export default function Home() {
   const [expandedSections, setExpandedSections] = useState<string[]>([
     ...DEFAULT_EXPANDED_SECTIONS,
   ]);
+  const [showScreenshot, setShowScreenshot] = useState(false);
+  /** Mirrors API `screenshotBase64` for the latest completed evaluation */
+  const [screenshotBase64, setScreenshotBase64] = useState<string | null>(null);
 
   function toggleSection(sectionId: string) {
     setExpandedSections((prev) =>
@@ -109,6 +113,8 @@ export default function Home() {
     setIsRunning(false);
     setProgress(initialProgress());
     setExpandedSections([...DEFAULT_EXPANDED_SECTIONS]);
+    setShowScreenshot(false);
+    setScreenshotBase64(null);
   }
 
   async function run() {
@@ -117,6 +123,8 @@ export default function Home() {
     setError(null);
     setProgress(initialProgress());
     setExpandedSections([...DEFAULT_EXPANDED_SECTIONS]);
+    setShowScreenshot(false);
+    setScreenshotBase64(null);
 
     const trimmedUrl = url.trim();
     const trimmedGithubUrl = githubUrl.trim();
@@ -204,7 +212,13 @@ export default function Home() {
             }
           } else if (m.event === "result" && m.data && typeof m.data === "object") {
             gotResult = true;
-            setResult(m.data as ResultShape);
+            const payload = m.data as ResultShape;
+            setResult(payload);
+            setScreenshotBase64(
+              typeof payload.screenshotBase64 === "string"
+                ? payload.screenshotBase64
+                : null,
+            );
             setProgress((prev) =>
               prev.map((row, i) =>
                 i === 3 ? { ...row, status: "done" as const } : row,
@@ -439,6 +453,30 @@ export default function Home() {
             </div>
           ) : null}
         </div>
+
+        {screenshotBase64 && screenshotBase64.length > 0 ? (
+          <div className="rounded-2xl border-2 border-black bg-white p-6">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-xs font-black uppercase tracking-widest text-gray-400">
+                LIVE SCREENSHOT
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowScreenshot((s) => !s)}
+                className="rounded-full border-2 border-black px-4 py-2 text-sm font-bold transition-colors hover:bg-[#B9FF66]"
+              >
+                {showScreenshot ? "Hide" : "View"}
+              </button>
+            </div>
+            {showScreenshot ? (
+              <img
+                src={`data:image/jpeg;base64,${screenshotBase64}`}
+                alt="Live capture of submission URL"
+                className="mt-4 w-full overflow-hidden rounded-2xl border-2 border-black object-cover object-top"
+              />
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="rounded-2xl border-2 border-black bg-white p-6">
           <p className="mb-4 text-xs font-black uppercase tracking-widest text-gray-400">
