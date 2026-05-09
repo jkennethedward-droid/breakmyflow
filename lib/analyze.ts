@@ -55,18 +55,34 @@ function getAnthropicClient(): Anthropic {
   return anthropicClient;
 }
 
-function extractJsonObject(text: string): unknown {
-  const trimmed = text.trim();
+function extractJSON(raw: string): unknown {
+  // Remove markdown code blocks
+  let cleaned = raw
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
+
+  // Find outermost { } bounds
+  const first = cleaned.indexOf("{");
+  const last = cleaned.lastIndexOf("}");
+
+  if (first === -1 || last === -1 || last <= first) {
+    throw new Error("No valid JSON object found in Claude response");
+  }
+
+  const jsonString = cleaned.slice(first, last + 1);
+
   try {
-    return JSON.parse(trimmed);
-  } catch {
-    const start = trimmed.indexOf("{");
-    const end = trimmed.lastIndexOf("}");
-    if (start === -1 || end === -1 || end <= start) {
-      throw new Error("Model did not return JSON.");
-    }
-    const slice = trimmed.slice(start, end + 1);
-    return JSON.parse(slice);
+    return JSON.parse(jsonString);
+  } catch (e) {
+    // Log the raw string for debugging
+    console.error("JSON parse failed at:", (e as SyntaxError).message);
+    console.error("Raw response (first 500 chars):", raw.slice(0, 500));
+    console.error("Extracted JSON (last 200 chars):", jsonString.slice(-200));
+    throw new Error(
+      `Model did not return valid JSON: ${(e as SyntaxError).message}`,
+    );
   }
 }
 
@@ -287,7 +303,9 @@ export async function analyzeSubmission(input: {
       "You are a senior hackathon judge with experience evaluating hundreds of submissions. " +
       "You give honest, specific, evidence-based verdicts. You do not give generic feedback. " +
       "Every observation must be tied to something you actually saw in the screenshot or read in the code. " +
-      "If you cannot find evidence for a claim, do not make it.";
+      "If you cannot find evidence for a claim, do not make it. " +
+      "CRITICAL: Your entire response must be valid JSON only. No text before or after. " +
+      "Start with { and end with }. Keep all string values concise -- maximum 200 characters per field to stay within token limits.";
 
     const modeLine = mode
       ? `Mode: ${mode === "builder" ? "builder (self-test before judging)" : "judge (official evaluation)"}`
@@ -368,7 +386,7 @@ export async function analyzeSubmission(input: {
         message = await client.messages.create(
           {
             model,
-            max_tokens: 4096,
+            max_tokens: 4000,
             system,
             messages: [
               {
@@ -441,7 +459,7 @@ export async function analyzeSubmission(input: {
       }),
     );
 
-    const parsed = extractJsonObject(text);
+    const parsed = extractJSON(text);
     const report = normalizeJudgeReport(parsed);
     if (!report) {
       throw new Error(
