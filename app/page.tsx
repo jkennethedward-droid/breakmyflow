@@ -1084,8 +1084,8 @@ export default function Home() {
         </header>
 
         <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-col pt-12 pb-10">
-          <div className="flex flex-col gap-10 md:flex-row md:items-center md:justify-between">
-            <div className="flex-1">
+          <div className="flex flex-col gap-10 md:flex-row md:items-center md:gap-12">
+            <div className="flex flex-col justify-center md:w-1/2">
               <h1 className="max-w-4xl text-6xl font-black leading-tight tracking-tight text-black">
                 <span className="block">You ship it.</span>
                 <span className="block">We try to break it.</span>
@@ -1120,12 +1120,19 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="hidden w-80 items-center justify-center md:flex xl:w-96">
-              <img
-                src="/chart_transparent.png"
-                alt="Sample evaluation scorecard"
-                className="w-full object-contain drop-shadow-sm"
-              />
+            <div className="hidden md:flex md:w-1/2 flex items-center justify-center">
+              <div className="w-full">
+                <div className="rounded-2xl border-2 border-black shadow-xl bg-white p-4 w-full">
+                  <img
+                    src="/chart_small.png"
+                    alt="Sample evaluation scorecard"
+                    className="w-full object-contain drop-shadow-sm"
+                  />
+                </div>
+                <p className="text-xs text-gray-400 text-center mt-2">
+                  Real output from a real submission
+                </p>
+              </div>
             </div>
           </div>
 
