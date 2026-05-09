@@ -359,9 +359,11 @@ export async function analyzeSubmission(input: {
     let message: Anthropic.Messages.Message | null = null;
     let usedModel: string | null = null;
 
+    const timeoutMs = Number(process.env.CLAUDE_TIMEOUT_MS ?? "90000");
+
     for (const model of candidates) {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       try {
         message = await client.messages.create(
           {
@@ -394,7 +396,9 @@ export async function analyzeSubmission(input: {
           e instanceof APIUserAbortError ||
           (e instanceof Error && e.name === "AbortError")
         ) {
-          lastError = new Error("Analysis timed out after 30 seconds");
+          lastError = new Error(
+            `Analysis timed out after ${Math.round(timeoutMs / 1000)} seconds`,
+          );
         } else {
           lastError = e;
         }
