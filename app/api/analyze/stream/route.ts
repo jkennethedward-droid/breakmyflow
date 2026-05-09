@@ -52,6 +52,7 @@ export async function POST(request: Request) {
   let body: Partial<{
     url: string;
     githubUrl?: string;
+    additionalUrls?: string[];
     mode?: string;
     customCriteria?: string;
   }>;
@@ -65,6 +66,9 @@ export async function POST(request: Request) {
   const url = typeof body.url === "string" ? body.url.trim() : "";
   const githubUrl =
     typeof body.githubUrl === "string" ? body.githubUrl.trim() : "";
+  const additionalUrls = Array.isArray(body.additionalUrls)
+    ? body.additionalUrls.filter((u): u is string => typeof u === "string")
+    : [];
   const modeRaw = typeof body.mode === "string" ? body.mode.trim() : "";
   const mode =
     modeRaw === "judge" || modeRaw === "builder"
@@ -132,6 +136,35 @@ export async function POST(request: Request) {
 
         send({ event: "progress", data: { step: 0, status: "done" } });
 
+        const additionalScreenshots: string[] = [];
+        if (additionalUrls && additionalUrls.length > 0) {
+          for (const pageUrl of additionalUrls.slice(0, 3)) {
+            try {
+              const urlCheck = validateUrl(pageUrl);
+              if (urlCheck.valid) {
+                let pathname = pageUrl;
+                try {
+                  pathname = new URL(pageUrl).pathname || "/";
+                } catch {
+                  // ignore
+                }
+                send({
+                  event: "progress",
+                  data: {
+                    step: 0,
+                    status: "active",
+                    message: `Capturing ${pathname}...`,
+                  },
+                });
+                const shot = await captureScreenshot(pageUrl);
+                additionalScreenshots.push(shot);
+              }
+            } catch {
+              // skip failed screenshots silently
+            }
+          }
+        }
+
         send({ event: "progress", data: { step: 1, status: "active" } });
         const githubAnalysis = githubUrl ? await analyzeGitHub(githubUrl) : null;
         send({ event: "progress", data: { step: 1, status: "done" } });
@@ -142,6 +175,7 @@ export async function POST(request: Request) {
           analysis = await analyzeSubmission({
             url,
             screenshotBase64,
+            additionalScreenshots,
             githubUrl: githubUrl || undefined,
             githubAnalysis,
             ...(mode ? { mode } : {}),

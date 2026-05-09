@@ -53,6 +53,7 @@ function getApiErrorMessage(data: unknown): string | null {
 type ProgressRow = {
   step: string;
   status: "waiting" | "active" | "done";
+  detail?: string;
 };
 
 type ScorecardSectionBase = {
@@ -152,6 +153,14 @@ function initialProgress(): ProgressRow[] {
   ];
 }
 
+function parseAdditionalUrls(input: string): string[] {
+  return input
+    .split(",")
+    .map((u) => u.trim())
+    .filter((u) => u.startsWith("http"))
+    .slice(0, 3);
+}
+
 function scrollToEvaluate() {
   document.getElementById("evaluate")?.scrollIntoView({ behavior: "smooth" });
 }
@@ -161,6 +170,7 @@ export default function Home() {
   const [showForm, setShowForm] = useState(false);
   const [url, setUrl] = useState("");
   const [githubUrl, setGithubUrl] = useState("");
+  const [additionalUrls, setAdditionalUrls] = useState("");
   const [customCriteria, setCustomCriteria] = useState("");
   const [isRunning, setIsRunning] = useState(false);
   const [isDone, setIsDone] = useState(false);
@@ -220,6 +230,7 @@ export default function Home() {
   function reset() {
     setUrl("");
     setGithubUrl("");
+    setAdditionalUrls("");
     setCustomCriteria("");
     setIsDone(false);
     setResult(null);
@@ -236,7 +247,12 @@ export default function Home() {
     setIsDone(false);
     setResult(null);
     setError(null);
-    setProgress(initialProgress());
+    const extraPages = parseAdditionalUrls(additionalUrls);
+    setProgress(() => {
+      const p = initialProgress();
+      if (extraPages.length > 0) p[0] = { step: "Capturing screenshots", status: "waiting" };
+      return p;
+    });
     setExpandedSections([]);
 
     const trimmedUrl = url.trim();
@@ -260,6 +276,7 @@ export default function Home() {
           githubUrl: trimmedGithubUrl || undefined,
           mode,
           customCriteria: customCriteria.trim() || undefined,
+          additionalUrls: extraPages,
         }),
       });
 
@@ -286,10 +303,11 @@ export default function Home() {
       const applyProgress = (
         stepIndex: number,
         status: "waiting" | "active" | "done",
+        detail?: string,
       ) => {
         setProgress((prev) => {
           const next = prev.map((row, i) =>
-            i === stepIndex ? { ...row, status } : row,
+            i === stepIndex ? { ...row, status, ...(detail ? { detail } : {}) } : row,
           );
           if (stepIndex === 1 && status === "done" && !hadGithub) {
             next[1] = {
@@ -324,7 +342,9 @@ export default function Home() {
           if (m.event === "progress" && m.data && typeof m.data.step === "number") {
             const st = m.data.status;
             if (st === "active" || st === "done" || st === "waiting") {
-              applyProgress(m.data.step, st);
+              const detail =
+                "message" in (m.data as any) ? String((m.data as any).message ?? "") : undefined;
+              applyProgress(m.data.step, st, detail && detail.length ? detail : undefined);
             }
           } else if (m.event === "result" && m.data && typeof m.data === "object") {
             gotResult = true;
@@ -1213,6 +1233,30 @@ export default function Home() {
                     className="w-full rounded-xl border-2 border-black bg-white px-4 py-3 text-black placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-[#B9FF66]"
                   />
                 </div>
+
+                <div className="space-y-1">
+                  <label
+                    htmlFor="additionalUrls"
+                    className="text-xs font-black uppercase tracking-widest text-black"
+                  >
+                    SHOW US WHAT MATTERS
+                    <span className="ml-1 font-normal text-gray-400">
+                      (optional)
+                    </span>
+                  </label>
+                  <textarea
+                    id="additionalUrls"
+                    value={additionalUrls}
+                    onChange={(e) => setAdditionalUrls(e.target.value)}
+                    rows={2}
+                    placeholder="https://your-app.vercel.app/dashboard, https://your-app.vercel.app/onboarding"
+                    className="w-full resize-none rounded-xl border-2 border-black bg-white px-4 py-3 text-sm text-black placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-[#B9FF66]"
+                  />
+                  <p className="mt-1 text-xs text-gray-400">
+                    Paste the pages you'd walk a judge through. We evaluate these
+                    specific pages — not your whole site. Max 3, comma-separated.
+                  </p>
+                </div>
               </>
             ) : null}
 
@@ -1295,6 +1339,9 @@ export default function Home() {
                           >
                             {row.step}
                             {row.status === "active" ? "..." : ""}
+                        {row.status === "active" && row.detail
+                          ? ` ${row.detail}`
+                          : ""}
                           </span>
                         </div>
                       ))}

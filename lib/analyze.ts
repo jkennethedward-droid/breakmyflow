@@ -1,4 +1,5 @@
 import Anthropic, { APIUserAbortError } from "@anthropic-ai/sdk";
+import type { MessageParam } from "@anthropic-ai/sdk/resources/messages/messages";
 
 import type { GitHubRepoAnalysis } from "@/lib/github";
 
@@ -281,6 +282,7 @@ function formatGitHubContext(g: GitHubRepoAnalysis): string {
 export async function analyzeSubmission(input: {
   url: string;
   screenshotBase64: string;
+  additionalScreenshots?: string[];
   githubUrl?: string;
   githubAnalysis?: GitHubRepoAnalysis | null;
   mode?: "judge" | "builder";
@@ -290,6 +292,7 @@ export async function analyzeSubmission(input: {
     const {
       url,
       screenshotBase64,
+      additionalScreenshots,
       githubUrl,
       githubAnalysis,
       mode,
@@ -299,13 +302,19 @@ export async function analyzeSubmission(input: {
       throw new Error("Missing required input: url, screenshotBase64.");
     }
 
+    const multiPageInstruction =
+      additionalScreenshots && additionalScreenshots.length > 0
+        ? ` You are seeing ${1 + additionalScreenshots.length} pages of this submission. Evaluate the complete user journey across all pages, not just the first. Note how the experience flows from page to page.`
+        : "";
+
     const system =
       "You are a senior hackathon judge with experience evaluating hundreds of submissions. " +
       "You give honest, specific, evidence-based verdicts. You do not give generic feedback. " +
       "Every observation must be tied to something you actually saw in the screenshot or read in the code. " +
       "If you cannot find evidence for a claim, do not make it. " +
       "CRITICAL: Your entire response must be valid JSON only. No text before or after. " +
-      "Start with { and end with }. Keep all string values concise -- maximum 200 characters per field to stay within token limits.";
+      "Start with { and end with }. Keep all string values concise -- maximum 200 characters per field to stay within token limits." +
+      multiPageInstruction;
 
     const modeLine = mode
       ? `Mode: ${mode === "builder" ? "builder (self-test before judging)" : "judge (official evaluation)"}`
@@ -369,6 +378,41 @@ export async function analyzeSubmission(input: {
       "Be specific. Be honest. Do not soften findings. A generic observation like 'the UI could be improved' is not acceptable -- name exactly what you saw.\n" +
       "Return only valid JSON. No markdown backticks. No preamble.";
 
+    const content: MessageParam["content"] = [
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/jpeg",
+          data: screenshotBase64,
+        },
+      },
+      {
+        type: "text",
+        text: `This is page 1 of ${1 + (additionalScreenshots?.length ?? 0)}: the main submission URL.`,
+      },
+    ];
+
+    (additionalScreenshots ?? []).forEach((shot, i) => {
+      content.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/jpeg",
+          data: shot,
+        },
+      });
+      content.push({
+        type: "text",
+        text: `This is page ${i + 2} of ${1 + (additionalScreenshots?.length ?? 0)}.`,
+      });
+    });
+
+    content.push({
+      type: "text",
+      text: userText,
+    });
+
     const client = getAnthropicClient();
 
     const candidates = ["claude-sonnet-4-6"] as const;
@@ -391,17 +435,7 @@ export async function analyzeSubmission(input: {
             messages: [
               {
                 role: "user",
-                content: [
-                  { type: "text", text: userText },
-                  {
-                    type: "image",
-                    source: {
-                      type: "base64",
-                      media_type: "image/jpeg",
-                      data: screenshotBase64,
-                    },
-                  },
-                ],
+                content,
               },
             ],
           },
