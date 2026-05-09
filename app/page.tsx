@@ -95,6 +95,34 @@ type ResultShape = {
   };
 };
 
+function parseCSV(text: string): Array<{ url: string; githubUrl?: string }> {
+  const lines = text.trim().split("\n");
+  const headers = (lines[0] ?? "")
+    .toLowerCase()
+    .split(",")
+    .map((h) => h.trim());
+  const urlIndex = headers.indexOf("url");
+  const githubIndex = headers.indexOf("github_url");
+  if (urlIndex === -1) return [];
+  return lines
+    .slice(1)
+    .map((line) => {
+      const cols = line.split(",").map((c) => c.trim());
+      return {
+        url: cols[urlIndex] ?? "",
+        githubUrl: githubIndex >= 0 ? cols[githubIndex] : undefined,
+      };
+    })
+    .filter((row) => row.url && row.url.startsWith("http"));
+}
+
+function escapeCsvCell(value: string): string {
+  if (/[",\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
 function initialProgress(): ProgressRow[] {
   return [
     { step: "Capturing live screenshot", status: "waiting" },
@@ -120,6 +148,22 @@ export default function Home() {
   const [progress, setProgress] = useState<ProgressRow[]>(() => initialProgress());
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
 
+  const [csvFilename, setCsvFilename] = useState<string | null>(null);
+  const [csvRows, setCsvRows] = useState<Array<{ url: string; githubUrl?: string }>>(
+    [],
+  );
+  const [bulkResults, setBulkResults] = useState<
+    Array<{
+      url: string;
+      githubUrl?: string;
+      status: "pending" | "running" | "done" | "error";
+      score?: number;
+      topFinding?: string;
+      verdict?: string;
+      error?: string;
+    }>
+  >([]);
+
   function toggleSection(sectionId: string) {
     setExpandedSections((prev) =>
       prev.includes(sectionId)
@@ -138,6 +182,9 @@ export default function Home() {
     setIsRunning(false);
     setProgress(initialProgress());
     setExpandedSections([]);
+    setCsvFilename(null);
+    setCsvRows([]);
+    setBulkResults([]);
   }
 
   async function run() {
@@ -260,6 +307,102 @@ export default function Home() {
     } finally {
       setIsRunning(false);
     }
+  }
+
+  async function runBulkEvaluation() {
+    const rows = csvRows;
+    if (!rows.length) return;
+    setError(null);
+
+    setBulkResults(
+      rows.map((r) => ({
+        url: r.url,
+        githubUrl: r.githubUrl,
+        status: "pending" as const,
+      })),
+    );
+
+    for (let i = 0; i < rows.length; i++) {
+      setBulkResults((prev) =>
+        prev.map((r, idx) => (idx === i ? { ...r, status: "running" } : r)),
+      );
+
+      try {
+        const response = await fetch("/api/analyze", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer breakmyflow2026",
+          },
+          body: JSON.stringify({
+            url: rows[i]?.url,
+            githubUrl: rows[i]?.githubUrl,
+            mode: "judge",
+            customCriteria: customCriteria || "",
+          }),
+        });
+
+        const data = (await response.json()) as any;
+
+        const sections = data?.sections;
+        const topFinding =
+          sections?.technicalCredibility?.flag ||
+          sections?.demoFlow?.flag ||
+          sections?.firstImpression?.flag ||
+          "No critical issues found";
+
+        setBulkResults((prev) =>
+          prev.map((r, idx) =>
+            idx === i
+              ? {
+                  ...r,
+                  status: "done",
+                  score: typeof data?.overallScore === "number" ? data.overallScore : undefined,
+                  topFinding: String(topFinding ?? "").slice(0, 80),
+                  verdict: String(sections?.verdict?.headline ?? "").slice(0, 100),
+                }
+              : r,
+          ),
+        );
+      } catch {
+        setBulkResults((prev) =>
+          prev.map((r, idx) =>
+            idx === i ? { ...r, status: "error", error: "Evaluation failed" } : r,
+          ),
+        );
+      }
+
+      if (i < rows.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+  }
+
+  function exportBulkCsv() {
+    const done = bulkResults
+      .filter((r) => r.status === "done" && typeof r.score === "number")
+      .slice()
+      .sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+
+    const header = ["Rank", "URL", "Score", "Top Finding", "Verdict"].join(",");
+    const lines = done.map((r, idx) =>
+      [
+        String(idx + 1),
+        escapeCsvCell(r.url),
+        `${r.score}/10`,
+        escapeCsvCell(r.topFinding ?? ""),
+        escapeCsvCell(r.verdict ?? ""),
+      ].join(","),
+    );
+
+    const csv = [header, ...lines].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = "results.csv";
+    a.click();
+    URL.revokeObjectURL(href);
   }
 
   function exportReportMd() {
@@ -735,51 +878,57 @@ export default function Home() {
           </div>
 
           <div className="mt-10 space-y-6 rounded-2xl border-2 border-black bg-[#F3F3F3] p-8">
-            <div className="space-y-2">
-              <label
-                htmlFor="url"
-                className="text-sm font-bold uppercase tracking-wide text-black"
-              >
-                Submission URL
-              </label>
-              <input
-                id="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://their-app.vercel.app"
-                inputMode="url"
-                autoComplete="url"
-                className="w-full rounded-xl border-2 border-black bg-white px-4 py-3 text-black placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-[#B9FF66]"
-              />
-            </div>
+            {mode === "builder" ? (
+              <>
+                <div className="space-y-2">
+                  <label
+                    htmlFor="url"
+                    className="text-sm font-bold uppercase tracking-wide text-black"
+                  >
+                    Submission URL
+                  </label>
+                  <input
+                    id="url"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    placeholder="https://their-app.vercel.app"
+                    inputMode="url"
+                    autoComplete="url"
+                    className="w-full rounded-xl border-2 border-black bg-white px-4 py-3 text-black placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-[#B9FF66]"
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <label
-                htmlFor="githubUrl"
-                className="text-sm font-bold uppercase tracking-wide text-black"
-              >
-                GitHub Repo URL{" "}
-                <span className="normal-case font-normal text-[#555555]">
-                  (optional)
-                </span>
-              </label>
-              <input
-                id="githubUrl"
-                value={githubUrl}
-                onChange={(e) => setGithubUrl(e.target.value)}
-                placeholder="https://github.com/team/repo"
-                inputMode="url"
-                autoComplete="url"
-                className="w-full rounded-xl border-2 border-black bg-white px-4 py-3 text-black placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-[#B9FF66]"
-              />
-            </div>
+                <div className="space-y-2">
+                  <label
+                    htmlFor="githubUrl"
+                    className="text-sm font-bold uppercase tracking-wide text-black"
+                  >
+                    GitHub Repo URL{" "}
+                    <span className="normal-case font-normal text-[#555555]">
+                      (optional)
+                    </span>
+                  </label>
+                  <input
+                    id="githubUrl"
+                    value={githubUrl}
+                    onChange={(e) => setGithubUrl(e.target.value)}
+                    placeholder="https://github.com/team/repo"
+                    inputMode="url"
+                    autoComplete="url"
+                    className="w-full rounded-xl border-2 border-black bg-white px-4 py-3 text-black placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-[#B9FF66]"
+                  />
+                </div>
+              </>
+            ) : null}
 
             <div className="space-y-2">
               <label
                 htmlFor="customCriteria"
                 className="text-sm font-bold uppercase tracking-wide text-black"
               >
-                Custom criteria{" "}
+                {mode === "judge"
+                  ? "JUDGING CRITERIA (optional)"
+                  : "Custom criteria"}{" "}
                 <span className="normal-case font-normal text-[#555555]">
                   (optional)
                 </span>
@@ -789,68 +938,253 @@ export default function Home() {
                 value={customCriteria}
                 onChange={(e) => setCustomCriteria(e.target.value)}
                 rows={4}
-                placeholder="Add any specific judging criteria e.g. 'Must use AI', 'Accessibility matters', 'Bonus for live demo'"
+                placeholder={
+                  mode === "judge"
+                    ? "e.g. Must use AI, bonus for live demo, accessibility matters — applies to all submissions"
+                    : "Add any specific judging criteria e.g. 'Must use AI', 'Accessibility matters', 'Bonus for live demo'"
+                }
                 className="w-full resize-y rounded-xl border-2 border-black bg-white px-4 py-3 text-black placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-[#B9FF66]"
               />
             </div>
 
-            <button
-              type="button"
-              onClick={run}
-              disabled={isRunning}
-              className="w-full rounded-full border-2 border-black bg-[#B9FF66] py-4 text-center text-lg font-bold text-black transition disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isRunning ? "Evaluating..." : "Evaluate Submission"}
-            </button>
+            {mode === "builder" ? (
+              <>
+                <button
+                  type="button"
+                  onClick={run}
+                  disabled={isRunning}
+                  className="w-full rounded-full border-2 border-black bg-[#B9FF66] py-4 text-center text-lg font-bold text-black transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isRunning ? "Evaluating..." : "Evaluate Submission"}
+                </button>
 
-            {isRunning ? (
-              <div className="rounded-2xl border-2 border-black bg-[#F3F3F3] p-6 transition-all">
-                <p className="text-xs font-black tracking-widest text-black">
-                  EVALUATION IN PROGRESS
-                </p>
-                <div className="mt-4 flex flex-col gap-3">
-                  {progress.map((row, idx) => (
-                    <div
-                      key={`${row.step}-${idx}`}
-                      className="flex items-center gap-3 transition-all duration-300"
-                    >
-                      {row.status === "waiting" ? (
+                {isRunning ? (
+                  <div className="rounded-2xl border-2 border-black bg-[#F3F3F3] p-6 transition-all">
+                    <p className="text-xs font-black tracking-widest text-black">
+                      EVALUATION IN PROGRESS
+                    </p>
+                    <div className="mt-4 flex flex-col gap-3">
+                      {progress.map((row, idx) => (
                         <div
-                          className="h-4 w-4 shrink-0 rounded-full border-2 border-gray-400"
-                          aria-hidden
-                        />
-                      ) : null}
-                      {row.status === "active" ? (
-                        <div
-                          className="h-4 w-4 shrink-0 animate-pulse rounded-full bg-[#B9FF66]"
-                          aria-hidden
-                        />
-                      ) : null}
-                      {row.status === "done" ? (
-                        <div
-                          className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#B9FF66] text-[10px] font-bold text-black"
-                          aria-hidden
+                          key={`${row.step}-${idx}`}
+                          className="flex items-center gap-3 transition-all duration-300"
                         >
-                          ✓
+                          {row.status === "waiting" ? (
+                            <div
+                              className="h-4 w-4 shrink-0 rounded-full border-2 border-gray-400"
+                              aria-hidden
+                            />
+                          ) : null}
+                          {row.status === "active" ? (
+                            <div
+                              className="h-4 w-4 shrink-0 animate-pulse rounded-full bg-[#B9FF66]"
+                              aria-hidden
+                            />
+                          ) : null}
+                          {row.status === "done" ? (
+                            <div
+                              className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-[#B9FF66] text-[10px] font-bold text-black"
+                              aria-hidden
+                            >
+                              ✓
+                            </div>
+                          ) : null}
+                          <span
+                            className={
+                              row.status === "waiting"
+                                ? "text-sm text-gray-400"
+                                : row.status === "active"
+                                  ? "text-sm font-bold text-black"
+                                  : "text-sm text-black"
+                            }
+                          >
+                            {row.step}
+                            {row.status === "active" ? "..." : ""}
+                          </span>
                         </div>
-                      ) : null}
-                      <span
-                        className={
-                          row.status === "waiting"
-                            ? "text-sm text-gray-400"
-                            : row.status === "active"
-                              ? "text-sm font-bold text-black"
-                              : "text-sm text-black"
-                        }
-                      >
-                        {row.step}
-                        {row.status === "active" ? "..." : ""}
-                      </span>
+                      ))}
                     </div>
-                  ))}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <label className="block text-sm font-bold uppercase tracking-wide text-black">
+                  Submissions CSV
+                </label>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => document.getElementById("csvInput")?.click()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      document.getElementById("csvInput")?.click();
+                    }
+                  }}
+                  className="cursor-pointer rounded-2xl border-2 border-dashed border-black bg-white p-12 text-center"
+                >
+                  <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full border-2 border-black text-4xl font-black">
+                    ↑
+                  </div>
+                  <p className="font-bold text-black">Upload submissions.csv</p>
+                  <p className="mt-2 text-sm text-gray-600">
+                    Two columns required: url, github_url (optional)
+                  </p>
+                  {csvFilename ? (
+                    <p className="mt-4 text-sm font-semibold text-black">
+                      {csvFilename} — {csvRows.length} rows detected
+                    </p>
+                  ) : null}
                 </div>
-              </div>
-            ) : null}
+                <input
+                  id="csvInput"
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    const text = await f.text();
+                    setCsvFilename(f.name);
+                    setCsvRows(parseCSV(text));
+                    setBulkResults([]);
+                  }}
+                />
+
+                <button
+                  type="button"
+                  onClick={runBulkEvaluation}
+                  disabled={csvRows.length === 0}
+                  className="w-full rounded-full border-2 border-black bg-[#B9FF66] py-4 text-center text-lg font-bold text-black transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Run Bulk Evaluation ({csvRows.length} submissions)
+                </button>
+
+                {bulkResults.length > 0 ? (
+                  <div className="space-y-4">
+                    {bulkResults.some(
+                      (r) => r.status === "pending" || r.status === "running",
+                    ) ? (
+                      <p className="mb-4 text-center text-sm text-gray-500">
+                        {
+                          bulkResults.filter((r) => r.status === "done").length
+                        }{" "}
+                        of {bulkResults.length} complete ·{" "}
+                        {
+                          bulkResults.filter(
+                            (r) =>
+                              r.status === "pending" || r.status === "running",
+                          ).length
+                        }{" "}
+                        remaining
+                      </p>
+                    ) : null}
+
+                    <div className="overflow-hidden rounded-2xl border-2 border-black">
+                      <table className="w-full border-collapse text-left text-sm text-black">
+                        <thead>
+                          <tr className="bg-[#191A23] text-white">
+                            {["Rank", "Team/URL", "Score", "Top Finding", "Verdict", "Status"].map(
+                              (h) => (
+                                <th key={h} className="p-4 text-sm font-black">
+                                  {h}
+                                </th>
+                              ),
+                            )}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(() => {
+                            const doneSorted = bulkResults
+                              .map((r, idx) => ({ r, idx }))
+                              .filter((x) => x.r.status === "done")
+                              .sort((a, b) => (b.r.score ?? -1) - (a.r.score ?? -1));
+
+                            const doneOrder = new Map<number, number>();
+                            doneSorted.forEach((x, rankIdx) =>
+                              doneOrder.set(x.idx, rankIdx + 1),
+                            );
+
+                            return bulkResults.map((r, idx) => {
+                              let rowClass = idx % 2 === 0 ? "bg-white" : "bg-[#F3F3F3]";
+                              if (r.status === "running") rowClass = "animate-pulse bg-[#B9FF66]/10";
+                              if (r.status === "error") rowClass = "bg-red-50 text-red-600";
+
+                              let hostname = r.url;
+                              try {
+                                hostname = new URL(r.url).hostname;
+                              } catch {
+                                // ignore
+                              }
+                              if (hostname.length > 30) hostname = `${hostname.slice(0, 27)}...`;
+
+                              const rank =
+                                r.status === "done" ? doneOrder.get(idx) ?? "" : "";
+
+                              const statusEl =
+                                r.status === "pending" ? (
+                                  <span className="flex items-center gap-2">
+                                    <span className="h-2 w-2 rounded-full bg-gray-400" />
+                                    Pending
+                                  </span>
+                                ) : r.status === "running" ? (
+                                  <span className="flex items-center gap-2">
+                                    <span className="h-2 w-2 animate-pulse rounded-full bg-[#B9FF66]" />
+                                    Evaluating...
+                                  </span>
+                                ) : r.status === "done" ? (
+                                  <span className="flex items-center gap-2 text-green-700">
+                                    <span className="font-black">✓</span>
+                                    {typeof r.score === "number" ? `${r.score}/10` : "Done"}
+                                  </span>
+                                ) : (
+                                  <span className="flex items-center gap-2">
+                                    <span className="font-black text-red-600">✕</span>
+                                    Failed
+                                  </span>
+                                );
+
+                              return (
+                                <tr key={`${r.url}-${idx}`} className={rowClass}>
+                                  <td className="p-4 font-black text-[#B9FF66]">
+                                    {rank}
+                                  </td>
+                                  <td className="p-4 font-semibold">{hostname}</td>
+                                  <td className="p-4">
+                                    {r.status === "done" && typeof r.score === "number"
+                                      ? `${r.score}/10`
+                                      : r.status === "error"
+                                        ? "—"
+                                        : "Pending..."}
+                                  </td>
+                                  <td className="p-4">{r.topFinding ?? ""}</td>
+                                  <td className="p-4">{r.verdict ?? ""}</td>
+                                  <td className="p-4">{statusEl}</td>
+                                </tr>
+                              );
+                            });
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {!bulkResults.some(
+                      (r) => r.status === "pending" || r.status === "running",
+                    ) &&
+                    bulkResults.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={exportBulkCsv}
+                        className="w-full rounded-full border-2 border-black bg-white px-8 py-3 text-center font-bold text-black transition-colors hover:bg-[#B9FF66]"
+                      >
+                        Export Results
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </>
+            )}
 
             {error ? (
               <p className="text-sm font-semibold text-red-600">{error}</p>
