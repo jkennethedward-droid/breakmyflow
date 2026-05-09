@@ -1085,7 +1085,7 @@ export default function Home() {
 
         <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-col pt-12 pb-10">
           <div className="flex flex-col gap-10 md:flex-row md:items-center md:gap-12">
-            <div className="flex flex-col justify-center md:w-1/2">
+            <div className="flex flex-col justify-center md:w-3/5">
               <h1 className="max-w-4xl text-6xl font-black leading-tight tracking-tight text-black">
                 <span className="block">You ship it.</span>
                 <span className="block">We try to break it.</span>
@@ -1120,13 +1120,13 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="hidden md:flex md:w-1/2 flex items-center justify-center">
+            <div className="hidden md:flex md:w-2/5 flex items-center justify-center">
               <div className="w-full">
-                <div className="rounded-2xl border-2 border-black shadow-xl bg-white p-4 w-full">
+                <div className="rounded-2xl shadow-xl bg-white p-4 w-full">
                   <img
                     src="/chart_small.png"
                     alt="Sample evaluation scorecard"
-                    className="w-full object-contain drop-shadow-sm"
+                    className="w-full object-contain drop-shadow-sm border-2 border-black rounded-2xl"
                   />
                 </div>
                 <p className="text-xs text-gray-400 text-center mt-2">
