@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   PolarAngleAxis,
   PolarGrid,
@@ -8,7 +8,22 @@ import {
   Radar,
   RadarChart,
   ResponsiveContainer,
+  Tooltip,
 } from "recharts";
+
+const RADAR_LABEL_TO_SECTION: Record<string, string> = {
+  "First Impression": "firstImpression",
+  "Value Prop": "valueProposition",
+  "Demo Flow": "demoFlow",
+  Technical: "technicalCredibility",
+};
+
+function getScreenshotImageSrc(raw: string): string {
+  const t = raw.trim();
+  if (t.startsWith("data:") || /^https?:\/\//i.test(t)) return t;
+  const cleaned = t.replace(/\s/g, "");
+  return `data:image/jpeg;base64,${cleaned}`;
+}
 
 function getApiErrorMessage(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
@@ -57,14 +72,6 @@ type ResultShape = {
   };
 };
 
-const DEFAULT_EXPANDED_SECTIONS = [
-  "firstImpression",
-  "valueProposition",
-  "demoFlow",
-  "technicalCredibility",
-  "verdict",
-] as const;
-
 function initialProgress(): ProgressRow[] {
   return [
     { step: "Capturing live screenshot", status: "waiting" },
@@ -88,12 +95,24 @@ export default function Home() {
   const [result, setResult] = useState<ResultShape | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<ProgressRow[]>(() => initialProgress());
-  const [expandedSections, setExpandedSections] = useState<string[]>([
-    ...DEFAULT_EXPANDED_SECTIONS,
-  ]);
+  const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [showScreenshot, setShowScreenshot] = useState(false);
   /** Mirrors API `screenshotBase64` for the latest completed evaluation */
   const [screenshotBase64, setScreenshotBase64] = useState<string | null>(null);
+  const [screenshotLoadFailed, setScreenshotLoadFailed] = useState(false);
+
+  useEffect(() => {
+    if (screenshotBase64 == null) return;
+    console.log(
+      "[screenshot] typeof:",
+      typeof screenshotBase64,
+      "length:",
+      screenshotBase64.length,
+      "prefix:",
+      screenshotBase64.slice(0, 48),
+    );
+    setScreenshotLoadFailed(false);
+  }, [screenshotBase64]);
 
   function toggleSection(sectionId: string) {
     setExpandedSections((prev) =>
@@ -112,9 +131,10 @@ export default function Home() {
     setError(null);
     setIsRunning(false);
     setProgress(initialProgress());
-    setExpandedSections([...DEFAULT_EXPANDED_SECTIONS]);
+    setExpandedSections([]);
     setShowScreenshot(false);
     setScreenshotBase64(null);
+    setScreenshotLoadFailed(false);
   }
 
   async function run() {
@@ -122,9 +142,10 @@ export default function Home() {
     setResult(null);
     setError(null);
     setProgress(initialProgress());
-    setExpandedSections([...DEFAULT_EXPANDED_SECTIONS]);
+    setExpandedSections([]);
     setShowScreenshot(false);
     setScreenshotBase64(null);
+    setScreenshotLoadFailed(false);
 
     const trimmedUrl = url.trim();
     const trimmedGithubUrl = githubUrl.trim();
@@ -213,6 +234,10 @@ export default function Home() {
           } else if (m.event === "result" && m.data && typeof m.data === "object") {
             gotResult = true;
             const payload = m.data as ResultShape;
+            console.log(
+              "[screenshot] payload.screenshotBase64 typeof:",
+              typeof payload.screenshotBase64,
+            );
             setResult(payload);
             setScreenshotBase64(
               typeof payload.screenshotBase64 === "string"
@@ -344,6 +369,19 @@ export default function Home() {
       { section: "Technical", score: sections.technicalCredibility.score },
     ];
 
+    const focusRadarSection = (radarLabel: string) => {
+      const sectionKey = RADAR_LABEL_TO_SECTION[radarLabel];
+      if (!sectionKey) return;
+      setExpandedSections((prev) =>
+        prev.includes(sectionKey) ? prev : [...prev, sectionKey],
+      );
+      requestAnimationFrame(() => {
+        document
+          .getElementById(`section-${sectionKey}`)
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    };
+
     const accordionHeader = (
       sectionId: string,
       label: string,
@@ -356,21 +394,19 @@ export default function Home() {
         <button
           type="button"
           onClick={() => toggleSection(sectionId)}
-          className={`flex w-full cursor-pointer items-center gap-2 text-left sm:gap-4 ${
-            isDark ? "" : ""
-          }`}
+          className="flex w-full cursor-pointer items-start gap-2 text-left sm:gap-3"
         >
           <span
-            className={`shrink-0 text-xs font-black uppercase tracking-widest ${
+            className={`w-28 shrink-0 pt-0.5 text-xs font-black uppercase tracking-widest sm:w-36 ${
               isDark ? "text-[#B9FF66]" : "text-gray-400"
             }`}
           >
             {label}
           </span>
           <span
-            className={`min-w-0 flex-1 text-base font-black ${
+            className={`min-w-0 flex-1 text-center text-sm font-black leading-snug whitespace-normal ${
               isDark ? "text-white" : "text-black"
-            } ${!isExpanded ? "truncate" : ""} ${isExpanded ? "sm:whitespace-normal" : ""}`}
+            }`}
           >
             {headline}
           </span>
@@ -402,7 +438,10 @@ export default function Home() {
     ) => {
       const isExpanded = expandedSections.includes(sectionId);
       return (
-        <div className="rounded-2xl border-2 border-black bg-white p-6">
+        <div
+          id={`section-${sectionId}`}
+          className="rounded-2xl border-2 border-black bg-white p-6 scroll-mt-4"
+        >
           {accordionHeader(sectionId, label, section.headline, section.score, false)}
           {isExpanded ? (
             <div>
@@ -440,76 +479,141 @@ export default function Home() {
 
     const verdictExpanded = expandedSections.includes("verdict");
 
+    const screenshotSrc =
+      screenshotBase64 && screenshotBase64.length > 0
+        ? getScreenshotImageSrc(screenshotBase64)
+        : null;
+
     return (
       <div className="space-y-8">
-        <div className="space-y-6">
-          <div className="flex items-end gap-2">
-            <div className="text-8xl font-black text-black">{overallScore}</div>
-            <div className="pb-4 text-2xl font-bold text-gray-500">/10</div>
-          </div>
-          {judgeQuote ? (
-            <div className="rounded-2xl border-2 border-black bg-[#B9FF66] p-6 text-lg font-bold italic text-black">
-              {judgeQuote}
-            </div>
-          ) : null}
-        </div>
-
-        {screenshotBase64 && screenshotBase64.length > 0 ? (
-          <div className="rounded-2xl border-2 border-black bg-white p-6">
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-xs font-black uppercase tracking-widest text-gray-400">
-                LIVE SCREENSHOT
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowScreenshot((s) => !s)}
-                className="rounded-full border-2 border-black px-4 py-2 text-sm font-bold transition-colors hover:bg-[#B9FF66]"
-              >
-                {showScreenshot ? "Hide" : "View"}
-              </button>
-            </div>
-            {showScreenshot ? (
-              <img
-                src={`data:image/jpeg;base64,${screenshotBase64}`}
-                alt="Live capture of submission URL"
-                className="mt-4 w-full overflow-hidden rounded-2xl border-2 border-black object-cover object-top"
-              />
-            ) : null}
-          </div>
-        ) : null}
-
         <div className="rounded-2xl border-2 border-black bg-white p-6">
-          <p className="mb-4 text-xs font-black uppercase tracking-widest text-gray-400">
-            SUBMISSION PROFILE
-          </p>
-          <ResponsiveContainer width="100%" height={300}>
-            <RadarChart
-              cx="50%"
-              cy="50%"
-              outerRadius={100}
-              data={radarData}
-            >
-              <PolarGrid gridType="polygon" stroke="#E5E5E5" />
-              <PolarAngleAxis
-                dataKey="section"
-                tick={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  fill: "#000000",
-                }}
-              />
-              <PolarRadiusAxis domain={[0, 10]} tick={false} axisLine={false} />
-              <Radar
-                name="Score"
-                dataKey="score"
-                fill="#B9FF66"
-                fillOpacity={0.6}
-                stroke="#000000"
-                strokeWidth={2}
-                isAnimationActive={true}
-              />
-            </RadarChart>
-          </ResponsiveContainer>
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
+            <div className="w-full shrink-0 sm:w-[40%]">
+              <p className="mb-1 text-xs font-black uppercase tracking-widest text-gray-400">
+                OVERALL SCORE
+              </p>
+              <div className="flex items-baseline gap-1 leading-none">
+                <span className="text-8xl font-black text-black">
+                  {overallScore}
+                </span>
+                <span className="text-2xl font-black text-gray-400">/10</span>
+              </div>
+              {judgeQuote ? (
+                <p className="mt-3 text-sm italic leading-relaxed text-gray-700">
+                  {judgeQuote}
+                </p>
+              ) : null}
+            </div>
+            <div className="min-w-0 flex-1 sm:w-[60%]">
+              <p className="mb-2 text-xs font-black uppercase tracking-widest text-gray-400">
+                SUBMISSION PROFILE
+              </p>
+              <ResponsiveContainer width="100%" height={240}>
+                <RadarChart
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={90}
+                  data={radarData}
+                >
+                  <PolarGrid gridType="polygon" stroke="#E5E5E5" />
+                  <Tooltip
+                    formatter={(value) => [
+                      `${value ?? ""}/10`,
+                      "Score",
+                    ]}
+                    contentStyle={{
+                      backgroundColor: "#000",
+                      color: "#fff",
+                      borderRadius: "0.5rem",
+                      fontSize: "12px",
+                      padding: "0.5rem 0.75rem",
+                      border: "none",
+                    }}
+                  />
+                  <PolarAngleAxis
+                    dataKey="section"
+                    tick={(props) => {
+                      const { x, y, payload, textAnchor } = props as {
+                        payload: { value: string };
+                        x: number | string;
+                        y: number | string;
+                        textAnchor: string;
+                      };
+                      const label = payload.value;
+                      return (
+                        <text
+                          x={Number(x)}
+                          y={Number(y)}
+                          dy={4}
+                          textAnchor={textAnchor as "start" | "middle" | "end"}
+                          fill="#000000"
+                          fontSize={12}
+                          fontWeight={700}
+                          className="cursor-pointer underline"
+                          style={{ cursor: "pointer" }}
+                          onClick={() => focusRadarSection(label)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              focusRadarSection(label);
+                            }
+                          }}
+                        >
+                          {label}
+                        </text>
+                      );
+                    }}
+                  />
+                  <PolarRadiusAxis
+                    domain={[0, 10]}
+                    tick={false}
+                    axisLine={false}
+                  />
+                  <Radar
+                    name="Score"
+                    dataKey="score"
+                    fill="#B9FF66"
+                    fillOpacity={0.6}
+                    stroke="#000000"
+                    strokeWidth={2}
+                    isAnimationActive={true}
+                  />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {screenshotBase64 && screenshotBase64.length > 0 ? (
+            <>
+              <div className="mt-4 flex items-center justify-between gap-4 border-t-2 border-black pt-4">
+                <span className="text-xs font-black uppercase tracking-widest text-gray-400">
+                  LIVE SCREENSHOT
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowScreenshot((s) => !s)}
+                  className="rounded-full border-2 border-black px-4 py-2 text-sm font-bold transition-colors hover:bg-[#B9FF66]"
+                >
+                  {showScreenshot ? "Hide" : "View"}
+                </button>
+              </div>
+              {showScreenshot ? (
+                screenshotLoadFailed ? (
+                  <p className="mt-3 text-sm font-medium text-gray-600">
+                    Screenshot unavailable
+                  </p>
+                ) : (
+                  <img
+                    key={screenshotSrc.slice(0, 80)}
+                    src={screenshotSrc}
+                    alt="Live capture of submission URL"
+                    className="mt-3 w-full overflow-hidden rounded-xl object-cover object-top"
+                    onError={() => setScreenshotLoadFailed(true)}
+                  />
+                )
+              ) : null}
+            </>
+          ) : null}
         </div>
 
         {whiteAccordion(
@@ -530,7 +634,10 @@ export default function Home() {
           techExtras,
         )}
 
-        <div className="rounded-2xl border-2 border-black bg-[#191A23] p-6 text-white">
+        <div
+          id="section-verdict"
+          className="rounded-2xl border-2 border-black bg-[#191A23] p-6 text-white scroll-mt-4"
+        >
           {accordionHeader("verdict", "05 VERDICT", v.headline, null, true)}
           {verdictExpanded ? (
             <div>
