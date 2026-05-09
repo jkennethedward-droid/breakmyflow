@@ -92,10 +92,23 @@ function isVerdictSection(v: unknown): v is VerdictSection {
   );
 }
 
+function averageOverallScore(
+  firstImpression: ScorecardSectionBase,
+  valueProposition: ScorecardSectionBase,
+  demoFlow: ScorecardSectionBase,
+  technicalCredibility: ScorecardSectionBase,
+): number {
+  const sum =
+    firstImpression.score +
+    valueProposition.score +
+    demoFlow.score +
+    technicalCredibility.score;
+  return Math.round(sum / 4);
+}
+
 function normalizeJudgeReport(raw: unknown): JudgeReport | null {
   if (!raw || typeof raw !== "object") return null;
   const v = raw as Record<string, unknown>;
-  if (typeof v.overallScore !== "number") return null;
   if (typeof v.judgeQuote !== "string") return null;
   if (!v.sections || typeof v.sections !== "object") return null;
   const s = v.sections as Record<string, unknown>;
@@ -106,23 +119,107 @@ function normalizeJudgeReport(raw: unknown): JudgeReport | null {
   if (!isTechnicalSection(s.technicalCredibility)) return null;
   if (!isVerdictSection(s.verdict)) return null;
 
-  const tech = s.technicalCredibility as TechnicalCredibilitySection;
-  const codeSpecific = tech.codeSpecific.slice(0, 3);
+  const firstImpression = s.firstImpression as ScorecardSectionBase;
+  const valueProposition = s.valueProposition as ScorecardSectionBase;
+  const demoFlow = s.demoFlow as ScorecardSectionBase;
+  const technicalCredibility = s.technicalCredibility as TechnicalCredibilitySection;
+  const codeSpecific = technicalCredibility.codeSpecific.slice(0, 5);
+
+  const overallScore = averageOverallScore(
+    firstImpression,
+    valueProposition,
+    demoFlow,
+    technicalCredibility,
+  );
 
   return {
-    overallScore: v.overallScore,
+    overallScore,
     judgeQuote: v.judgeQuote,
     sections: {
-      firstImpression: s.firstImpression as ScorecardSectionBase,
-      valueProposition: s.valueProposition as ScorecardSectionBase,
-      demoFlow: s.demoFlow as ScorecardSectionBase,
+      firstImpression,
+      valueProposition,
+      demoFlow,
       technicalCredibility: {
-        ...(s.technicalCredibility as TechnicalCredibilitySection),
+        ...technicalCredibility,
         codeSpecific,
       },
       verdict: s.verdict as VerdictSection,
     },
   };
+}
+
+const TECHNICAL_ANALYSIS_INSTRUCTIONS = `
+TECHNICAL ANALYSIS INSTRUCTIONS:
+For the technicalCredibility section, you must look for these specific signals in the code provided. For each finding, name the exact file and what you found. Generic observations are not acceptable.
+
+Check for these in order of severity:
+
+CRITICAL (always flag if found):
+- Hardcoded API keys or secrets: scan all files for patterns like sk-, pk-, Bearer, api_key =, apiKey: followed by a string literal
+- Boilerplate README: does the README contain the phrase 'bootstrapped with create-next-app' or 'This is a Next.js project'
+- Empty API routes: any route file that only returns a static object with no real logic (e.g. return Response.json({status:'ok'}))
+- TODO or FIXME comments still present in production code
+
+HIGH (flag if found):
+- Console.log statements in API route files (not in comments)
+- Missing try/catch in async API route handlers
+- Dev dependencies that should be production: check if openai, anthropic, axios, or similar are under devDependencies in package.json instead of dependencies
+- Placeholder text: 'Lorem ipsum', 'coming soon', 'not implemented' in visible UI files
+
+MEDIUM (note if found):
+- No .env.example file when the code references process.env (means other devs cannot run it)
+- hasTests is false (no test files anywhere in the codebase)
+- Single word or missing repo description
+
+STACK HONESTY CHECK:
+- List every AI/ML package found in package.json (openai, anthropic, langchain, huggingface, etc.)
+- Cross-reference against what the README or demo claims to use
+- Flag any mismatch: claims to use X but X is not in package.json
+
+For codeSpecific, return max 5 items, each must follow this format:
+'[SEVERITY] filename: specific finding'
+Example: '[CRITICAL] app/api/analyze/route.ts: hardcoded Anthropic API key found on line starting with const client'
+Example: '[HIGH] package.json: openai listed under devDependencies, will fail in production deployment'
+Example: '[CRITICAL] README.md: still contains default create-next-app boilerplate — no project description'
+`.trim();
+
+function formatGitHubContext(g: GitHubRepoAnalysis): string {
+  const apiBlock =
+    g.apiRouteFiles.length > 0
+      ? g.apiRouteFiles
+          .map(
+            (f) =>
+              `--- API route: ${f.path} ---\n${f.content}`,
+          )
+          .join("\n\n")
+      : "(no API route files fetched)";
+
+  const guidanceBlock =
+    g.guidanceFiles.length > 0
+      ? g.guidanceFiles
+          .map((f) => `--- ${f.path} ---\n${f.content}`)
+          .join("\n\n")
+      : "";
+
+  const envBlock =
+    g.envExampleContent != null
+      ? `--- .env example (sample) ---\n${g.envExampleContent}`
+      : "(no .env.example / .env.sample content fetched)";
+
+  return (
+    `README (first 3000 chars): ${g.readmeText}\n` +
+    `File tree (sample, first 50 paths of ${g.totalFileCount} files):\n${g.fileTree.join("\n")}\n` +
+    `package.json: ${g.packageJson ?? "null"}\n` +
+    `Main entry point (${g.mainEntryPoint?.path ?? "null"}): ${g.mainEntryPoint?.content ?? "null"}\n` +
+    `defaultBranch: ${g.defaultBranch}\n` +
+    `lastCommitDate (repo updated_at): ${g.lastCommitDate}\n` +
+    `totalFileCount: ${g.totalFileCount}\n` +
+    `hasEnvExample: ${g.hasEnvExample}\n` +
+    `hasTests: ${g.hasTests}\n\n` +
+    `${envBlock}\n\n` +
+    (guidanceBlock ? `${guidanceBlock}\n\n` : "") +
+    `API route file contents (up to 10 files, 2000 chars each):\n${apiBlock}\n`
+  );
 }
 
 export async function analyzeSubmission(input: {
@@ -160,12 +257,7 @@ export async function analyzeSubmission(input: {
       ? `Additional judging criteria: ${customCriteria.trim()}\n`
       : "";
 
-    const githubBlock = githubAnalysis
-      ? `README (first 3000 chars): ${githubAnalysis.readmeText}\n` +
-        `File tree:\n${githubAnalysis.fileTree.join("\n")}\n` +
-        `package.json: ${githubAnalysis.packageJson ?? "null"}\n` +
-        `Main entry point (${githubAnalysis.mainEntryPoint?.path ?? "null"}): ${githubAnalysis.mainEntryPoint?.content ?? "null"}\n`
-      : "";
+    const githubBlock = githubAnalysis ? `${formatGitHubContext(githubAnalysis)}\n` : "";
 
     const userText =
       "Evaluate this hackathon submission as a senior judge would.\n\n" +
@@ -174,9 +266,11 @@ export async function analyzeSubmission(input: {
       (githubUrl ? `GitHub Repo URL: ${githubUrl}\n` : "") +
       (customBlock ? `\n${customBlock}` : "") +
       (githubBlock ? `\n${githubBlock}\n` : "") +
-      "\nAnalyse the screenshot provided. Then return ONLY a valid JSON object with exactly this structure, no markdown, no preamble:\n\n" +
+      (githubBlock ? `${TECHNICAL_ANALYSIS_INSTRUCTIONS}\n\n` : "") +
+      "overallScore must be the mathematical average of firstImpression.score, valueProposition.score, demoFlow.score, and technicalCredibility.score, rounded to nearest integer. Do not invent a separate score.\n\n" +
+      "Analyse the screenshot provided. Then return ONLY a valid JSON object with exactly this structure, no markdown, no preamble:\n\n" +
       "{\n" +
-      '  "overallScore": number (1-10),\n' +
+      '  "overallScore": number (1-10, must equal round average of the four scored sections),\n' +
       '  "sections": {\n' +
       '    "firstImpression": {\n' +
       '      "score": number (1-10),\n' +
@@ -201,7 +295,7 @@ export async function analyzeSubmission(input: {
       '      "headline": string,\n' +
       '      "observation": string,\n' +
       '      "flag": string | null,\n' +
-      '      "codeSpecific": [string] (max 3 -- each must name a specific file, line pattern, or finding. No generic observations. Examples of good specifics: "console.log found in app/api/analyze/route.ts line 45", "package.json lists openai as devDependency not production", "README still contains default create-next-app boilerplate text". If no GitHub provided, return empty array.)\n' +
+      '      "codeSpecific": [string] (max 5 -- each like "[SEVERITY] filename: finding". If no GitHub provided, return empty array.)\n' +
       "    },\n" +
       '    "verdict": {\n' +
       '      "score": null,\n' +

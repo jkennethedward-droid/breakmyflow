@@ -1,6 +1,14 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import {
+  PolarAngleAxis,
+  PolarGrid,
+  PolarRadiusAxis,
+  Radar,
+  RadarChart,
+  ResponsiveContainer,
+} from "recharts";
 
 function getApiErrorMessage(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
@@ -33,6 +41,7 @@ type VerdictSection = {
 };
 
 type ResultShape = {
+  url?: string;
   screenshotCaptured?: boolean;
   screenshotError?: string;
   githubAnalyzed?: boolean;
@@ -46,6 +55,14 @@ type ResultShape = {
     verdict: VerdictSection;
   };
 };
+
+const DEFAULT_EXPANDED_SECTIONS = [
+  "firstImpression",
+  "valueProposition",
+  "demoFlow",
+  "technicalCredibility",
+  "verdict",
+] as const;
 
 function initialProgress(): ProgressRow[] {
   return [
@@ -70,6 +87,17 @@ export default function Home() {
   const [result, setResult] = useState<ResultShape | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<ProgressRow[]>(() => initialProgress());
+  const [expandedSections, setExpandedSections] = useState<string[]>([
+    ...DEFAULT_EXPANDED_SECTIONS,
+  ]);
+
+  function toggleSection(sectionId: string) {
+    setExpandedSections((prev) =>
+      prev.includes(sectionId)
+        ? prev.filter((id) => id !== sectionId)
+        : [...prev, sectionId],
+    );
+  }
 
   function reset() {
     setUrl("");
@@ -80,6 +108,7 @@ export default function Home() {
     setError(null);
     setIsRunning(false);
     setProgress(initialProgress());
+    setExpandedSections([...DEFAULT_EXPANDED_SECTIONS]);
   }
 
   async function run() {
@@ -87,6 +116,7 @@ export default function Home() {
     setResult(null);
     setError(null);
     setProgress(initialProgress());
+    setExpandedSections([...DEFAULT_EXPANDED_SECTIONS]);
 
     const trimmedUrl = url.trim();
     const trimmedGithubUrl = githubUrl.trim();
@@ -199,33 +229,80 @@ export default function Home() {
     }
   }
 
-  function renderScorecardSection(
-    label: string,
-    section: ScorecardSectionBase,
-    extras?: ReactNode,
-  ) {
-    return (
-      <div className="rounded-2xl border-2 border-black bg-white p-6">
-        <div className="flex items-start justify-between gap-4">
-          <span className="text-xs font-black uppercase tracking-widest text-gray-400">
-            {label}
-          </span>
-          <span className="text-2xl font-black text-black">{section.score}</span>
-        </div>
-        <h4 className="mt-2 mb-3 text-xl font-black text-black">
-          {section.headline}
-        </h4>
-        <p className="text-sm leading-relaxed text-gray-600">
-          {section.observation}
-        </p>
-        {extras}
-        {section.flag ? (
-          <div className="mt-4 border-l-4 border-red-500 bg-red-50 px-4 py-2 text-sm font-medium text-red-700">
-            ⚠ {section.flag}
-          </div>
-        ) : null}
-      </div>
+  function exportReportMd() {
+    if (
+      !result?.sections ||
+      typeof result.overallScore !== "number" ||
+      typeof result.judgeQuote !== "string"
+    ) {
+      return;
+    }
+    const reportUrl =
+      typeof result.url === "string" ? result.url : url.trim() || "(not set)";
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const s = result.sections;
+    const lines: string[] = [
+      "---",
+      "# Break My Flow — Evaluation Report",
+      `**URL:** ${reportUrl}`,
+      `**Date:** ${dateStr}`,
+      `**Overall Score:** ${result.overallScore}/10`,
+      "",
+      `> ${result.judgeQuote}`,
+      "",
+      "---",
+      "",
+      `## 01 First Impression — ${s.firstImpression.score}/10`,
+      `**${s.firstImpression.headline}**`,
+      s.firstImpression.observation,
+      ...(s.firstImpression.flag
+        ? [`⚠ ${s.firstImpression.flag}`]
+        : []),
+      "",
+      `## 02 Value Proposition — ${s.valueProposition.score}/10`,
+      `**${s.valueProposition.headline}**`,
+      s.valueProposition.observation,
+      ...(s.valueProposition.flag ? [`⚠ ${s.valueProposition.flag}`] : []),
+      "",
+      `## 03 Demo Flow — ${s.demoFlow.score}/10`,
+      `**${s.demoFlow.headline}**`,
+      s.demoFlow.observation,
+      ...(s.demoFlow.flag ? [`⚠ ${s.demoFlow.flag}`] : []),
+      "",
+      `## 04 Technical Credibility — ${s.technicalCredibility.score}/10`,
+      `**${s.technicalCredibility.headline}**`,
+      s.technicalCredibility.observation,
+      ...(s.technicalCredibility.flag
+        ? [`⚠ ${s.technicalCredibility.flag}`]
+        : []),
+    ];
+    if (s.technicalCredibility.codeSpecific.length > 0) {
+      lines.push("", "### Code Findings");
+      for (const item of s.technicalCredibility.codeSpecific) {
+        lines.push(`- ${item}`);
+      }
+    }
+    lines.push(
+      "",
+      "## 05 Verdict",
+      `**${s.verdict.headline}**`,
+      "**What to do in the next 30 minutes:**",
+      s.verdict.observation,
+      ...(s.verdict.flag ? [`⚠ ${s.verdict.flag}`] : []),
+      "",
+      "---",
+      "*Generated by Break My Flow — breakmyflow-production.up.railway.app*",
+      '*Paste this file into Claude or ChatGPT and say: "Help me fix these issues before judging."*',
+      "---",
     );
+    const markdown = lines.join("\n");
+    const blob = new Blob([markdown], { type: "text/markdown" });
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = "break-my-flow-report.md";
+    a.click();
+    URL.revokeObjectURL(href);
   }
 
   function renderResultsBody() {
@@ -244,6 +321,92 @@ export default function Home() {
       Array.isArray(tech.codeSpecific) &&
       tech.codeSpecific.length > 0;
 
+    const v = sections.verdict;
+
+    const radarData = [
+      { section: "First Impression", score: sections.firstImpression.score },
+      { section: "Value Prop", score: sections.valueProposition.score },
+      { section: "Demo Flow", score: sections.demoFlow.score },
+      { section: "Technical", score: sections.technicalCredibility.score },
+    ];
+
+    const accordionHeader = (
+      sectionId: string,
+      label: string,
+      headline: string,
+      score: number | null,
+      isDark: boolean,
+    ) => {
+      const isExpanded = expandedSections.includes(sectionId);
+      return (
+        <button
+          type="button"
+          onClick={() => toggleSection(sectionId)}
+          className={`flex w-full cursor-pointer items-center gap-2 text-left sm:gap-4 ${
+            isDark ? "" : ""
+          }`}
+        >
+          <span
+            className={`shrink-0 text-xs font-black uppercase tracking-widest ${
+              isDark ? "text-[#B9FF66]" : "text-gray-400"
+            }`}
+          >
+            {label}
+          </span>
+          <span
+            className={`min-w-0 flex-1 text-base font-black ${
+              isDark ? "text-white" : "text-black"
+            } ${!isExpanded ? "truncate" : ""} ${isExpanded ? "sm:whitespace-normal" : ""}`}
+          >
+            {headline}
+          </span>
+          <div className="flex shrink-0 items-center gap-2">
+            {score != null ? (
+              <span className="rounded-full border border-black bg-[#B9FF66] px-3 py-1 text-sm font-black text-black">
+                {score}/10
+              </span>
+            ) : null}
+            <span
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-sm font-black ${
+                isDark
+                  ? "border-white text-white"
+                  : "border-black text-black"
+              }`}
+            >
+              {isExpanded ? "−" : "+"}
+            </span>
+          </div>
+        </button>
+      );
+    };
+
+    const whiteAccordion = (
+      sectionId: string,
+      label: string,
+      section: ScorecardSectionBase,
+      extras?: ReactNode,
+    ) => {
+      const isExpanded = expandedSections.includes(sectionId);
+      return (
+        <div className="rounded-2xl border-2 border-black bg-white p-6">
+          {accordionHeader(sectionId, label, section.headline, section.score, false)}
+          {isExpanded ? (
+            <div>
+              <p className="mt-4 text-sm leading-relaxed text-gray-600">
+                {section.observation}
+              </p>
+              {section.flag ? (
+                <div className="mt-4 border-l-4 border-red-500 bg-red-50 px-4 py-2 text-sm font-medium text-red-700">
+                  ⚠ {section.flag}
+                </div>
+              ) : null}
+              {extras}
+            </div>
+          ) : null}
+        </div>
+      );
+    };
+
     const techExtras =
       showCodeSpecific ? (
         <div className="mt-3 rounded-xl bg-[#191A23] p-4">
@@ -261,7 +424,7 @@ export default function Home() {
         </div>
       ) : null;
 
-    const v = sections.verdict;
+    const verdictExpanded = expandedSections.includes("verdict");
 
     return (
       <div className="space-y-8">
@@ -277,36 +440,73 @@ export default function Home() {
           ) : null}
         </div>
 
-        {renderScorecardSection("01 First Impression", sections.firstImpression)}
-        {renderScorecardSection(
-          "02 Value Proposition",
+        <div className="rounded-2xl border-2 border-black bg-white p-6">
+          <p className="mb-4 text-xs font-black uppercase tracking-widest text-gray-400">
+            SUBMISSION PROFILE
+          </p>
+          <ResponsiveContainer width="100%" height={300}>
+            <RadarChart
+              cx="50%"
+              cy="50%"
+              outerRadius={100}
+              data={radarData}
+            >
+              <PolarGrid gridType="polygon" stroke="#E5E5E5" />
+              <PolarAngleAxis
+                dataKey="section"
+                tick={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  fill: "#000000",
+                }}
+              />
+              <PolarRadiusAxis domain={[0, 10]} tick={false} axisLine={false} />
+              <Radar
+                name="Score"
+                dataKey="score"
+                fill="#B9FF66"
+                fillOpacity={0.6}
+                stroke="#000000"
+                strokeWidth={2}
+                isAnimationActive={true}
+              />
+            </RadarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {whiteAccordion(
+          "firstImpression",
+          "01 FIRST IMPRESSION",
+          sections.firstImpression,
+        )}
+        {whiteAccordion(
+          "valueProposition",
+          "02 VALUE PROPOSITION",
           sections.valueProposition,
         )}
-        {renderScorecardSection("03 Demo Flow", sections.demoFlow)}
-        {renderScorecardSection(
-          "04 Technical Credibility",
+        {whiteAccordion("demoFlow", "03 DEMO FLOW", sections.demoFlow)}
+        {whiteAccordion(
+          "technicalCredibility",
+          "04 TECHNICAL CREDIBILITY",
           sections.technicalCredibility,
           techExtras,
         )}
 
         <div className="rounded-2xl border-2 border-black bg-[#191A23] p-6 text-white">
-          <div className="flex items-start justify-between gap-4">
-            <span className="text-xs font-black uppercase tracking-widest text-[#B9FF66]">
-              05 Verdict
-            </span>
-          </div>
-          <h4 className="mt-2 mb-3 text-xl font-black text-white">
-            {v.headline}
-          </h4>
-          <p className="text-xs font-black uppercase tracking-widest text-[#B9FF66]">
-            What to do in the next 30 minutes:
-          </p>
-          <p className="mt-2 text-sm leading-relaxed text-gray-300">
-            {v.observation}
-          </p>
-          {v.flag ? (
-            <div className="mt-4 border-l-4 border-red-400 bg-red-950/40 px-4 py-2 text-sm font-medium text-red-300">
-              ⚠ {v.flag}
+          {accordionHeader("verdict", "05 VERDICT", v.headline, null, true)}
+          {verdictExpanded ? (
+            <div>
+              <p className="mt-4 text-xs font-black uppercase tracking-widest text-[#B9FF66]">
+                WHAT TO DO IN THE NEXT 30 MINUTES:
+              </p>
+              <p className="mt-2 text-sm leading-relaxed text-gray-300">
+                {v.observation}
+              </p>
+              {v.flag ? (
+                <div className="mt-4 border-l-4 border-red-400 bg-red-950/40 px-4 py-2 text-sm font-medium text-red-300">
+                  ⚠ {v.flag}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -573,6 +773,18 @@ export default function Home() {
                     </span>
                   ) : null}
                   {renderResultsBody()}
+                  {result &&
+                  result.sections &&
+                  typeof result.overallScore === "number" &&
+                  typeof result.judgeQuote === "string" ? (
+                    <button
+                      type="button"
+                      onClick={exportReportMd}
+                      className="mt-6 w-full rounded-full border-2 border-black bg-white px-8 py-3 text-center font-bold text-black transition-colors hover:bg-[#B9FF66]"
+                    >
+                      Export as .md
+                    </button>
+                  ) : null}
                 </div>
                 <button
                   type="button"
