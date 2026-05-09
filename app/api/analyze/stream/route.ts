@@ -12,7 +12,6 @@ export async function POST(request: Request) {
   let body: Partial<{
     url: string;
     githubUrl?: string;
-    focus: string;
     mode?: string;
     customCriteria?: string;
   }>;
@@ -26,7 +25,6 @@ export async function POST(request: Request) {
   const url = typeof body.url === "string" ? body.url.trim() : "";
   const githubUrl =
     typeof body.githubUrl === "string" ? body.githubUrl.trim() : "";
-  const focus = typeof body.focus === "string" ? body.focus.trim() : "";
   const modeRaw = typeof body.mode === "string" ? body.mode.trim() : "";
   const mode =
     modeRaw === "judge" || modeRaw === "builder"
@@ -35,9 +33,9 @@ export async function POST(request: Request) {
   const customCriteria =
     typeof body.customCriteria === "string" ? body.customCriteria.trim() : "";
 
-  if (!url || !focus) {
+  if (!url) {
     return NextResponse.json(
-      { error: "Missing required fields: url and focus" },
+      { error: "Missing required field: url" },
       { status: 400 },
     );
   }
@@ -64,7 +62,6 @@ export async function POST(request: Request) {
               status: "ok",
               url,
               githubUrl: githubUrl || undefined,
-              focus,
               githubAnalyzed: false,
               screenshotCaptured: false,
               screenshotError,
@@ -84,7 +81,6 @@ export async function POST(request: Request) {
         try {
           analysis = await analyzeSubmission({
             url,
-            focus,
             screenshotBase64,
             githubUrl: githubUrl || undefined,
             githubAnalysis,
@@ -100,7 +96,6 @@ export async function POST(request: Request) {
               status: "ok",
               url,
               githubUrl: githubUrl || undefined,
-              focus,
               githubAnalyzed: false,
               screenshotCaptured: false,
               screenshotError,
@@ -117,7 +112,6 @@ export async function POST(request: Request) {
           status: "ok" as const,
           url,
           githubUrl: githubUrl || undefined,
-          focus,
           githubAnalyzed: Boolean(githubUrl) && githubAnalysis !== null,
           screenshotCaptured: true,
           ...analysis,
@@ -134,7 +128,6 @@ export async function POST(request: Request) {
             status: "ok",
             url,
             githubUrl: githubUrl || undefined,
-            focus,
             githubAnalyzed: false,
             screenshotCaptured: false,
             screenshotError,

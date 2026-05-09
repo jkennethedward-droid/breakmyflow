@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 function getApiErrorMessage(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
@@ -61,21 +61,9 @@ function scrollToEvaluate() {
 }
 
 export default function Home() {
-  const focuses = useMemo(
-    () => [
-      "Overall first impression",
-      "Demo flow clarity",
-      "Onboarding and UX",
-      "Value proposition strength",
-      "Technical completeness",
-    ],
-    [],
-  );
-
   const [mode, setMode] = useState<"judge" | "builder">("builder");
   const [url, setUrl] = useState("");
   const [githubUrl, setGithubUrl] = useState("");
-  const [focus, setFocus] = useState(focuses[0] ?? "");
   const [customCriteria, setCustomCriteria] = useState("");
   const [isRunning, setIsRunning] = useState(false);
   const [isDone, setIsDone] = useState(false);
@@ -86,7 +74,6 @@ export default function Home() {
   function reset() {
     setUrl("");
     setGithubUrl("");
-    setFocus(focuses[0] ?? "");
     setCustomCriteria("");
     setIsDone(false);
     setResult(null);
@@ -104,8 +91,8 @@ export default function Home() {
     const trimmedUrl = url.trim();
     const trimmedGithubUrl = githubUrl.trim();
     const hadGithub = trimmedGithubUrl.length > 0;
-    if (!trimmedUrl || !focus) {
-      setError("Submission URL and evaluation focus are required.");
+    if (!trimmedUrl) {
+      setError("Submission URL is required.");
       return;
     }
 
@@ -117,7 +104,6 @@ export default function Home() {
         body: JSON.stringify({
           url: trimmedUrl,
           githubUrl: trimmedGithubUrl || undefined,
-          focus,
           mode,
           customCriteria: customCriteria.trim() || undefined,
         }),
@@ -368,9 +354,6 @@ export default function Home() {
               Evaluate Submissions
             </button>
           </div>
-          <p className="mt-8 text-center text-sm text-gray-400">
-            Used by builders and judges at AI Engineer Hackathon Singapore 2026
-          </p>
         </div>
       </section>
 
@@ -495,27 +478,6 @@ export default function Home() {
                 autoComplete="url"
                 className="w-full rounded-xl border-2 border-black bg-white px-4 py-3 text-black placeholder:text-gray-400 outline-none focus:ring-2 focus:ring-[#B9FF66]"
               />
-            </div>
-
-            <div className="space-y-2">
-              <label
-                htmlFor="focus"
-                className="text-sm font-bold uppercase tracking-wide text-black"
-              >
-                Evaluation focus
-              </label>
-              <select
-                id="focus"
-                value={focus}
-                onChange={(e) => setFocus(e.target.value)}
-                className="w-full rounded-xl border-2 border-black bg-white px-4 py-3 text-black outline-none focus:ring-2 focus:ring-[#B9FF66]"
-              >
-                {focuses.map((f) => (
-                  <option key={f} value={f} className="bg-white text-black">
-                    {f}
-                  </option>
-                ))}
-              </select>
             </div>
 
             <div className="space-y-2">

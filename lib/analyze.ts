@@ -127,7 +127,6 @@ function normalizeJudgeReport(raw: unknown): JudgeReport | null {
 
 export async function analyzeSubmission(input: {
   url: string;
-  focus: string;
   screenshotBase64: string;
   githubUrl?: string;
   githubAnalysis?: GitHubRepoAnalysis | null;
@@ -137,15 +136,14 @@ export async function analyzeSubmission(input: {
   try {
     const {
       url,
-      focus,
       screenshotBase64,
       githubUrl,
       githubAnalysis,
       mode,
       customCriteria,
     } = input;
-    if (!url || !focus || !screenshotBase64) {
-      throw new Error("Missing required input: url, focus, screenshotBase64.");
+    if (!url || !screenshotBase64) {
+      throw new Error("Missing required input: url, screenshotBase64.");
     }
 
     const system =
@@ -172,7 +170,6 @@ export async function analyzeSubmission(input: {
     const userText =
       "Evaluate this hackathon submission as a senior judge would.\n\n" +
       `Submission URL: ${url}\n` +
-      `Evaluation Focus: ${focus}\n` +
       `${modeLine}\n` +
       (githubUrl ? `GitHub Repo URL: ${githubUrl}\n` : "") +
       (customBlock ? `\n${customBlock}` : "") +
