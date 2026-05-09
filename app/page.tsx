@@ -1078,9 +1078,17 @@ export default function Home() {
       {/* Hero */}
       <section className="relative flex flex-col bg-[#F3F3F3] px-4 sm:px-6 lg:px-8">
         <header className="relative z-20 mx-auto w-full max-w-6xl bg-[#F3F3F3] py-6">
-          <span className="text-xl font-black tracking-tight text-black">
+          <button
+            type="button"
+            onClick={() => {
+              setShowForm(false);
+              setSelectedReport(null);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            className="text-xl font-black tracking-tight text-black"
+          >
             Break My Flow
-          </span>
+          </button>
         </header>
 
         <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-col pt-12 pb-10">
