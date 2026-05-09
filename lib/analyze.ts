@@ -10,7 +10,11 @@ export type ScorecardSectionBase = {
   flag: string | null;
 };
 
-export type TechnicalCredibilitySection = ScorecardSectionBase & {
+export type TechnicalCredibilitySection = {
+  score: number | null;
+  headline: string;
+  observation: string;
+  flag: string | null;
   codeSpecific: string[];
 };
 
@@ -23,6 +27,7 @@ export type VerdictSection = {
 
 export type JudgeReport = {
   overallScore: number;
+  evaluationScope: string;
   sections: {
     firstImpression: ScorecardSectionBase;
     valueProposition: ScorecardSectionBase;
@@ -103,8 +108,11 @@ function isStdSection(v: unknown): v is ScorecardSectionBase {
 }
 
 function isTechnicalSection(v: unknown): v is TechnicalCredibilitySection {
-  if (!isStdSection(v)) return false;
   const o = v as Record<string, unknown>;
+  if (!v || typeof v !== "object") return false;
+  if (!(typeof o.headline === "string" && typeof o.observation === "string")) return false;
+  if (!isNullableString(o.flag)) return false;
+  if (!(o.score === null || typeof o.score === "number")) return false;
   if (!Array.isArray(o.codeSpecific)) return false;
   return o.codeSpecific.every((x) => typeof x === "string");
 }
@@ -120,24 +128,27 @@ function isVerdictSection(v: unknown): v is VerdictSection {
   );
 }
 
-function averageOverallScore(
-  firstImpression: ScorecardSectionBase,
-  valueProposition: ScorecardSectionBase,
-  demoFlow: ScorecardSectionBase,
-  technicalCredibility: ScorecardSectionBase,
-): number {
-  const sum =
-    firstImpression.score +
-    valueProposition.score +
-    demoFlow.score +
-    technicalCredibility.score;
-  return Math.round(sum / 4);
+function roundAverage(scores: Array<number | null | undefined>): number {
+  const nums = scores.filter((s): s is number => typeof s === "number");
+  if (nums.length === 0) return 1;
+  return Math.round(nums.reduce((a, b) => a + b, 0) / nums.length);
 }
 
-function normalizeJudgeReport(raw: unknown): JudgeReport | null {
+function applyEvidenceCap(overall: number, hasGithub: boolean, pageCount: number): number {
+  if (hasGithub) return overall;
+  const cap = pageCount > 1 ? 7 : 6;
+  return Math.min(overall, cap);
+}
+
+function looksThinPage(text: string): boolean {
+  return /(lorem ipsum|coming soon|not implemented|placeholder|template|boilerplate)/i.test(text);
+}
+
+function normalizeJudgeReport(raw: unknown, opts: { hasGithub: boolean; pageCount: number }): JudgeReport | null {
   if (!raw || typeof raw !== "object") return null;
   const v = raw as Record<string, unknown>;
   if (typeof v.judgeQuote !== "string") return null;
+  if (typeof v.evaluationScope !== "string") return null;
   if (!v.sections || typeof v.sections !== "object") return null;
   const s = v.sections as Record<string, unknown>;
 
@@ -151,24 +162,57 @@ function normalizeJudgeReport(raw: unknown): JudgeReport | null {
   const valueProposition = s.valueProposition as ScorecardSectionBase;
   const demoFlow = s.demoFlow as ScorecardSectionBase;
   const technicalCredibility = s.technicalCredibility as TechnicalCredibilitySection;
-  const codeSpecific = technicalCredibility.codeSpecific.slice(0, 5);
+  const hasGithub = opts.hasGithub;
+  const pageCount = opts.pageCount;
 
-  const overallScore = averageOverallScore(
-    firstImpression,
-    valueProposition,
-    demoFlow,
-    technicalCredibility,
-  );
+  let techScore: number | null = technicalCredibility.score;
+  let techObservation = technicalCredibility.observation;
+  let codeSpecific = technicalCredibility.codeSpecific.slice(0, 5);
+
+  if (!hasGithub) {
+    techScore = null;
+    techObservation =
+      "No GitHub repository provided. Add your repo URL for technical analysis.";
+    codeSpecific = [];
+  }
+
+  // Evidence-based caps for demo flow
+  let demoFlowScore = demoFlow.score;
+  if (!hasGithub && pageCount === 1) demoFlowScore = Math.min(demoFlowScore, 4);
+  if (hasGithub && pageCount === 1) demoFlowScore = Math.min(demoFlowScore, 6);
+
+  // Thin page detection cap
+  const thinSignal = [
+    firstImpression.headline,
+    firstImpression.observation,
+    demoFlow.headline,
+    demoFlow.observation,
+    demoFlow.flag ?? "",
+  ].join(" ");
+  if (looksThinPage(thinSignal)) {
+    demoFlowScore = Math.min(demoFlowScore, hasGithub ? 5 : 3);
+  }
+
+  const overallScoreRaw = roundAverage([
+    firstImpression.score,
+    valueProposition.score,
+    demoFlowScore,
+    techScore,
+  ]);
+  const overallScore = applyEvidenceCap(overallScoreRaw, hasGithub, pageCount);
 
   return {
     overallScore,
+    evaluationScope: v.evaluationScope,
     judgeQuote: v.judgeQuote,
     sections: {
       firstImpression,
       valueProposition,
-      demoFlow,
+      demoFlow: { ...demoFlow, score: demoFlowScore },
       technicalCredibility: {
         ...technicalCredibility,
+        score: techScore,
+        observation: techObservation,
         codeSpecific,
       },
       verdict: s.verdict as VerdictSection,
@@ -302,19 +346,54 @@ export async function analyzeSubmission(input: {
       throw new Error("Missing required input: url, screenshotBase64.");
     }
 
-    const multiPageInstruction =
-      additionalScreenshots && additionalScreenshots.length > 0
-        ? ` You are seeing ${1 + additionalScreenshots.length} pages of this submission. Evaluate the complete user journey across all pages, not just the first. Note how the experience flows from page to page.`
-        : "";
+    const hasGithub = githubAnalysis !== null;
+    const pageCount = 1 + (additionalScreenshots?.length ?? 0);
 
     const system =
-      "You are a senior hackathon judge with experience evaluating hundreds of submissions. " +
-      "You give honest, specific, evidence-based verdicts. You do not give generic feedback. " +
-      "Every observation must be tied to something you actually saw in the screenshot or read in the code. " +
-      "If you cannot find evidence for a claim, do not make it. " +
-      "CRITICAL: Your entire response must be valid JSON only. No text before or after. " +
-      "Start with { and end with }. Keep all string values concise -- maximum 200 characters per field to stay within token limits." +
-      multiPageInstruction;
+      `You are a senior hackathon judge with deep technical experience.
+You give honest, specific, evidence-based verdicts. You never
+fabricate findings. Every score must be justified by actual
+evidence from the sources provided.
+
+CRITICAL RULE: Different sources evaluate different things.
+You must strictly follow this separation:
+
+SCREENSHOT(S) evaluate ONLY:
+- Visual clarity and design quality
+- Whether the value proposition is immediately understandable
+- Whether a judge can follow the demo without instructions
+- First impression and emotional response
+- UI completeness and polish
+
+GITHUB evaluates ONLY:
+- Code quality and real implementation depth
+- Whether the README matches the actual codebase
+- Security signals and production-readiness
+- Technical stack legitimacy
+- Completeness of implementation
+
+You MUST NOT infer technical quality from screenshots.
+You MUST NOT infer UI quality from code.
+These are separate lenses. Use them only for what they can
+actually reveal.
+
+SCORE RUBRIC (mandatory -- use these definitions):
+9-10: Working product clearly demonstrated, sharp value prop,
+      real implementation with no placeholders, multiple pages
+      showing actual product functionality, code matches claims
+7-8:  Mostly working, clear value prop, some rough edges,
+      real code with minor gaps or missing polish
+5-6:  Promising concept, limited execution visible,
+      thin pages or incomplete code, claims partially supported
+3-4:  Concept only, no working product visible,
+      boilerplate code, placeholder content, unsubstantiated claims
+1-2:  Broken, empty, completely unrelated, or fraudulent submission
+
+Never give 7+ to a submission that cannot demonstrate
+its product working. Design quality alone is not sufficient
+for a high score.
+
+CRITICAL: Your entire response must be valid JSON only. No text before or after. Start with { and end with }.`.trim();
 
     const modeLine = mode
       ? `Mode: ${mode === "builder" ? "builder (self-test before judging)" : "judge (official evaluation)"}`
@@ -326,20 +405,70 @@ export async function analyzeSubmission(input: {
 
     const githubBlock = githubAnalysis ? `${formatGitHubContext(githubAnalysis)}\n` : "";
 
+    const evidenceBlock = (() => {
+      if (hasGithub && pageCount > 1) {
+        return `EVIDENCE AVAILABLE: Multiple pages + GitHub repository.
+Weight your evaluation: UI/UX sections (First Impression, Value Proposition, Demo Flow) informed by all screenshots.
+Technical Credibility informed by GitHub only.
+Full scoring range 1-10 available for all sections.`;
+      }
+      if (hasGithub && pageCount === 1) {
+        return `EVIDENCE AVAILABLE: Homepage only + GitHub repository.
+Weight your evaluation: GitHub carries 70% of credibility.
+Screenshots inform UI/UX only.
+Demo Flow maximum score: 6/10 (single page limitation).
+Full range available for Technical Credibility.`;
+      }
+      if (!hasGithub && pageCount > 1) {
+        return `EVIDENCE AVAILABLE: Multiple pages provided. No GitHub.
+UI/UX sections: evaluate from screenshots only.
+Technical Credibility: YOU MUST return score as null and observation as 'No GitHub repository provided. Technical assessment requires code access.'
+Overall score maximum: 7/10 without code verification.`;
+      }
+      return `EVIDENCE AVAILABLE: Homepage only. No GitHub.
+This is the most limited evaluation possible.
+UI/UX sections: evaluate homepage screenshot only.
+Technical Credibility: YOU MUST return score as null and observation as 'No GitHub repository provided. Technical assessment requires code access.'
+Demo Flow maximum: 4/10 (single page, no product visible).
+Overall score maximum: 6/10.
+Do not speculate about what the product does beyond what is literally visible on the page.`;
+    })();
+
+    const evaluationScopeLine = (() => {
+      if (!hasGithub && pageCount === 1) {
+        return `⚠ Limited evaluation: homepage screenshot only. Add your GitHub repo and demo pages for a full assessment. Score capped at 6/10.`;
+      }
+      if (!hasGithub && pageCount > 1) {
+        return `Visual evaluation: ${pageCount} pages assessed. Technical Credibility not scored — no GitHub provided. Score capped at 7/10.`;
+      }
+      if (hasGithub && pageCount === 1) {
+        return `Homepage evaluated visually. Full codebase analysed via GitHub. Add demo pages to improve Demo Flow assessment.`;
+      }
+      return `Complete evaluation: ${pageCount} pages assessed visually + full codebase analysed. Full scoring range active.`;
+    })();
+
     const userText =
       "Evaluate this hackathon submission as a senior judge would.\n\n" +
       `Submission URL: ${url}\n` +
       `${modeLine}\n` +
       (githubUrl ? `GitHub Repo URL: ${githubUrl}\n` : "") +
+      `Pages provided: ${pageCount}\n` +
+      `\n${evidenceBlock}\n\n` +
       (customBlock ? `\n${customBlock}` : "") +
       (githubBlock ? `\n${githubBlock}\n` : "") +
       (githubBlock
         ? `${TECHNICAL_ANALYSIS_INSTRUCTIONS}\n\n${SECURITY_AND_RESILIENCE_ANALYSIS}\n\n`
         : "") +
-      "overallScore must be the mathematical average of firstImpression.score, valueProposition.score, demoFlow.score, and technicalCredibility.score, rounded to nearest integer. Do not invent a separate score.\n\n" +
-      "Analyse the screenshot provided. Then return ONLY a valid JSON object with exactly this structure, no markdown, no preamble:\n\n" +
+      "THIN PAGE DETECTION (mandatory): If the page(s) look thin/placeholder (very little real content, template/coming-soon vibes), cap Demo Flow score:\n" +
+      "- Thin page + no GitHub: demoFlow.score max 3/10\n" +
+      "- Thin page + GitHub: demoFlow.score max 5/10\n\n" +
+      "SCORING RULES (mandatory):\n" +
+      "- If technicalCredibility.score is null, overallScore must average ONLY the non-null section scores, then apply evidence cap: no GitHub + single page cap 6; no GitHub + multiple pages cap 7.\n" +
+      "- If all scores present, overallScore must average all 4 scored sections.\n\n" +
+      "Return ONLY a valid JSON object with exactly this structure, no markdown, no preamble:\n\n" +
       "{\n" +
-      '  "overallScore": number (1-10, must equal round average of the four scored sections),\n' +
+      `  "evaluationScope": string (must be exactly: ${JSON.stringify(evaluationScopeLine)}),\n` +
+      '  "overallScore": number (1-10, computed per SCORING RULES),\n' +
       '  "sections": {\n' +
       '    "firstImpression": {\n' +
       '      "score": number (1-10),\n' +
@@ -360,11 +489,11 @@ export async function analyzeSubmission(input: {
       '      "flag": string | null\n' +
       "    },\n" +
       '    "technicalCredibility": {\n' +
-      '      "score": number (1-10),\n' +
+      '      "score": number | null (null when no GitHub provided — do not invent a score),\n' +
       '      "headline": string,\n' +
-      '      "observation": string,\n' +
+      '      "observation": string (if score is null, must explain: "No GitHub repository provided. Add your repo URL for technical analysis."),\n' +
       '      "flag": string | null,\n' +
-      '      "codeSpecific": [string] (max 5 -- include technical [CRITICAL|HIGH|MEDIUM] and security [SECURITY-CRITICAL|SECURITY-HIGH|SECURITY-MEDIUM] prefixes as instructed; each line names a file and a specific finding. If no GitHub provided, return empty array.)\n' +
+      '      "codeSpecific": [string] (max 5; empty array when no GitHub)\n' +
       "    },\n" +
       '    "verdict": {\n' +
       '      "score": null,\n' +
@@ -494,7 +623,10 @@ export async function analyzeSubmission(input: {
     );
 
     const parsed = extractJSON(text);
-    const report = normalizeJudgeReport(parsed);
+    const report = normalizeJudgeReport(parsed, {
+      hasGithub,
+      pageCount,
+    });
     if (!report) {
       throw new Error(
         `Model returned JSON but not the expected scorecard schema.${
