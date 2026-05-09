@@ -10,12 +10,21 @@ export async function POST(request: Request) {
       url: string;
       githubUrl?: string;
       focus: string;
+      mode?: string;
+      customCriteria?: string;
     }>;
 
     const url = typeof body.url === "string" ? body.url.trim() : "";
     const githubUrl =
       typeof body.githubUrl === "string" ? body.githubUrl.trim() : "";
     const focus = typeof body.focus === "string" ? body.focus.trim() : "";
+    const modeRaw = typeof body.mode === "string" ? body.mode.trim() : "";
+    const mode =
+      modeRaw === "judge" || modeRaw === "builder"
+        ? (modeRaw as "judge" | "builder")
+        : undefined;
+    const customCriteria =
+      typeof body.customCriteria === "string" ? body.customCriteria.trim() : "";
 
     if (!url || !focus) {
       return NextResponse.json(
@@ -33,6 +42,8 @@ export async function POST(request: Request) {
         screenshotBase64,
         githubUrl: githubUrl || undefined,
         githubAnalysis,
+        ...(mode ? { mode } : {}),
+        ...(customCriteria ? { customCriteria } : {}),
       });
 
       return NextResponse.json({

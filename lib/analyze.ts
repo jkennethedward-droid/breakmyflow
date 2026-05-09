@@ -71,9 +71,19 @@ export async function analyzeSubmission(input: {
   screenshotBase64: string;
   githubUrl?: string;
   githubAnalysis?: GitHubRepoAnalysis | null;
+  mode?: "judge" | "builder";
+  customCriteria?: string;
 }): Promise<JudgeReport> {
   try {
-    const { url, focus, screenshotBase64, githubUrl, githubAnalysis } = input;
+    const {
+      url,
+      focus,
+      screenshotBase64,
+      githubUrl,
+      githubAnalysis,
+      mode,
+      customCriteria,
+    } = input;
     if (!url || !focus || !screenshotBase64) {
       throw new Error("Missing required input: url, focus, screenshotBase64.");
     }
@@ -90,7 +100,13 @@ export async function analyzeSubmission(input: {
     const userText =
       `Evaluation focus: ${focus}\n` +
       `Submission URL: ${url}\n` +
+      (mode
+        ? `Mode: ${mode === "builder" ? "builder (self-test before judging)" : "judge (official evaluation)"}\n`
+        : "") +
       (githubUrl ? `GitHub Repo URL: ${githubUrl}\n` : "") +
+      (customCriteria?.trim()
+        ? `Additional judging criteria from the organiser: ${customCriteria.trim()}\n`
+        : "") +
       (githubAnalysis
         ? "\nGitHub Analysis:\n" +
           `- README: ${githubAnalysis.readmeText}\n` +
