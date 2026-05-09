@@ -543,37 +543,34 @@ export default function Home() {
         <button
           type="button"
           onClick={() => toggleSection(sectionId)}
-          className="relative w-full cursor-pointer text-left"
+          className="w-full cursor-pointer text-left"
         >
-          <div className="space-y-1 pr-12">
-            <div
+          <div className="flex w-full items-start justify-between gap-4">
+            <span
               className={`text-xs font-black uppercase tracking-widest ${
                 isDark ? "text-[#B9FF66]" : "text-gray-400"
               }`}
             >
               {label}
-            </div>
-            <div
-              className={`text-base font-black leading-snug ${
-                isDark ? "text-white" : "text-black"
-              }`}
-            >
-              {headline}
-            </div>
-            {score != null ? (
-              <span className="mt-2 inline-block rounded-full border border-black bg-[#B9FF66] px-3 py-1 text-sm font-black text-black">
-                {score}/10
+            </span>
+            <div className="flex items-center gap-2">
+              {score != null ? (
+                <span className="rounded-full border border-black bg-[#B9FF66] px-3 py-1 text-sm font-black text-black">
+                  {score}/10
+                </span>
+              ) : null}
+              <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-black text-sm font-black">
+                {isExpanded ? "−" : "+"}
               </span>
-            ) : null}
+            </div>
           </div>
-          <span
-            className={`absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full border-2 text-sm font-black ${
-              isDark ? "border-white text-white" : "border-black text-black"
+          <div
+            className={`mt-2 text-base font-black leading-snug ${
+              isDark ? "text-white" : "text-black"
             }`}
-            aria-hidden
           >
-            {isExpanded ? "−" : "+"}
-          </span>
+            {headline}
+          </div>
         </button>
       );
     };
