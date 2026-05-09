@@ -46,7 +46,7 @@ sections, security signal analysis, and .md export.
 ## Tech Stack
 
 - Next.js 16 (App Router) + TypeScript + Tailwind CSS
-- Anthropic Claude claude-sonnet-4-5-20251001 — vision and analysis
+- Anthropic Claude claude-sonnet-4-6 — vision and analysis
 - Screenshotone — real browser screenshot capture
 - Recharts — interactive radar chart
 - Railway — deployment from GitHub main branch
