@@ -29,13 +29,13 @@ const CustomRadarTooltip = ({
     const section = payload[0].payload.section;
     const score = payload[0].value;
     return (
-      <div className="rounded-xl border-2 border-[#B9FF66] bg-black px-4 py-3 shadow-lg">
-        <p className="mb-1 text-xs font-black uppercase tracking-widest text-[#B9FF66]">
+      <div className="bg-black border-2 border-[#B9FF66] rounded-xl px-4 py-3 shadow-lg">
+        <p className="text-[#B9FF66] text-xs font-black uppercase tracking-widest mb-1">
           {section}
         </p>
-        <p className="text-3xl font-black leading-none text-white">
+        <p className="text-white text-3xl font-black leading-none">
           {score}
-          <span className="text-lg text-gray-400">/10</span>
+          <span className="text-gray-400 text-lg font-normal">/10</span>
         </p>
       </div>
     );
@@ -138,6 +138,7 @@ function scrollToEvaluate() {
 
 export default function Home() {
   const [mode, setMode] = useState<"judge" | "builder">("builder");
+  const [showForm, setShowForm] = useState(false);
   const [url, setUrl] = useState("");
   const [githubUrl, setGithubUrl] = useState("");
   const [customCriteria, setCustomCriteria] = useState("");
@@ -598,14 +599,17 @@ export default function Home() {
 
     const techExtras =
       showCodeSpecific ? (
-        <div className="mt-3 rounded-xl bg-[#191A23] p-4">
+        <div className="mt-3 rounded-xl border-2 border-blue-600 bg-white p-4">
+          <p className="mb-3 text-xs font-black uppercase tracking-widest text-blue-600">
+            CODE FINDINGS
+          </p>
           <ul className="space-y-2">
             {tech.codeSpecific.map((line, idx) => (
               <li
                 key={`${line}-${idx}`}
-                className="flex gap-2 text-sm font-mono text-white"
+                className="flex items-start gap-2 text-sm font-mono text-blue-700"
               >
-                <span className="shrink-0 text-[#B9FF66]">●</span>
+                <span className="mt-1 inline-block h-2 w-2 shrink-0 rounded-full bg-blue-600" />
                 <span>{line}</span>
               </li>
             ))}
@@ -736,7 +740,7 @@ export default function Home() {
               <p className="mt-4 text-xs font-black uppercase tracking-widest text-[#B9FF66]">
                 WHAT TO DO IN THE NEXT 30 MINUTES:
               </p>
-              <p className="mt-2 text-sm leading-relaxed text-gray-300">
+              <p className="mt-2 text-sm leading-relaxed text-gray-200">
                 {v.observation}
               </p>
               {v.flag ? (
@@ -754,14 +758,14 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#F3F3F3] text-black">
       {/* Hero */}
-      <section className="relative flex min-h-screen flex-col bg-[#F3F3F3] px-4 sm:px-6 lg:px-8">
+      <section className="relative flex flex-col bg-[#F3F3F3] px-4 sm:px-6 lg:px-8">
         <header className="relative z-20 mx-auto w-full max-w-6xl bg-[#F3F3F3] py-6">
           <span className="text-xl font-black tracking-tight text-black">
             Break My Flow
           </span>
         </header>
 
-        <div className="relative z-10 mx-auto flex max-w-6xl flex-1 flex-col justify-center pt-16 pb-12">
+        <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-col pt-12 pb-10">
           <h1 className="max-w-4xl text-6xl font-black leading-tight tracking-tight text-black">
             You ship it. We try to break it.
           </h1>
@@ -773,76 +777,80 @@ export default function Home() {
             <button
               type="button"
               onClick={() => {
+                setShowForm(true);
                 setMode("builder");
                 scrollToEvaluate();
               }}
               className="rounded-full border-2 border-black bg-[#B9FF66] px-8 py-4 text-center text-base font-bold text-black transition hover:opacity-90"
             >
-              Test My Submission
+              For Builders
             </button>
             <button
               type="button"
               onClick={() => {
+                setShowForm(true);
                 setMode("judge");
                 scrollToEvaluate();
               }}
               className="rounded-full border-2 border-black bg-white px-8 py-4 text-center text-base font-bold text-black transition hover:bg-gray-50"
             >
-              Evaluate Submissions
+              For Judges
             </button>
+          </div>
+
+          <div className="mt-8 grid gap-6 md:grid-cols-3">
+            {[
+              {
+                n: "01",
+                t: "60-Second Evaluation",
+                d: "Real browser screenshot + Claude vision analysis. No guesswork.",
+              },
+              {
+                n: "02",
+                t: "Three-Layer Code Analysis",
+                d: "Quality signals, completeness score, and claim vs code honesty checks.",
+              },
+              {
+                n: "03",
+                t: "Judge + Builder Mode",
+                d: "Organisers evaluate submissions. Builders self-test before judging.",
+              },
+            ].map((card, i) => {
+              const cardClass =
+                i === 0
+                  ? "bg-[#F3F3F3] text-black"
+                  : i === 1
+                    ? "bg-[#B9FF66] text-black"
+                    : "bg-[#191A23] text-white";
+              const numClass =
+                i === 2
+                  ? "text-4xl font-black text-white"
+                  : "text-4xl font-black text-black";
+              const titleClass =
+                i === 2
+                  ? "mt-4 mb-2 text-xl font-bold text-white"
+                  : "mt-4 mb-2 text-xl font-bold text-black";
+              const descClass =
+                i === 2
+                  ? "text-sm leading-relaxed text-gray-300"
+                  : "text-sm leading-relaxed text-gray-600";
+              return (
+                <div
+                  key={card.n}
+                  className={`rounded-2xl border-2 border-black p-8 ${cardClass}`}
+                >
+                  <div className={numClass}>{card.n}</div>
+                  <h2 className={titleClass}>{card.t}</h2>
+                  <p className={descClass}>{card.d}</p>
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>
 
-      {/* USP */}
-      <section className="border-t-2 border-black bg-[#F3F3F3] px-4 py-16 sm:px-6 lg:px-8">
-        <div className="mx-auto grid max-w-6xl gap-6 md:grid-cols-3">
-          {[
-            {
-              n: "01",
-              t: "60-Second Evaluation",
-              d: "Real browser screenshot + Claude vision analysis. No guesswork.",
-            },
-            {
-              n: "02",
-              t: "Three-Layer Code Analysis",
-              d: "Quality signals, completeness score, and claim vs code honesty checks.",
-            },
-            {
-              n: "03",
-              t: "Judge + Builder Mode",
-              d: "Organisers evaluate submissions. Builders self-test before judging.",
-            },
-          ].map((card, i) => {
-            const cardClass =
-              i === 0
-                ? "bg-[#F3F3F3] text-black"
-                : i === 1
-                  ? "bg-[#B9FF66] text-black"
-                  : "bg-[#191A23] text-white";
-            const numClass =
-              i === 2 ? "text-4xl font-black text-white" : "text-4xl font-black text-black";
-            const titleClass =
-              i === 2
-                ? "mt-4 mb-2 text-xl font-bold text-white"
-                : "mt-4 mb-2 text-xl font-bold text-black";
-            const descClass =
-              i === 2 ? "text-sm leading-relaxed text-gray-300" : "text-sm leading-relaxed text-gray-600";
-            return (
-              <div
-                key={card.n}
-                className={`rounded-2xl border-2 border-black p-8 ${cardClass}`}
-              >
-                <div className={numClass}>{card.n}</div>
-                <h2 className={titleClass}>{card.t}</h2>
-                <p className={descClass}>{card.d}</p>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
       {/* Evaluate */}
+      {showForm ? (
       <section
         id="evaluate"
         className="scroll-mt-8 border-t-2 border-black bg-white px-4 py-16 sm:px-6 lg:px-8"
@@ -1213,14 +1221,6 @@ export default function Home() {
                       Export as .md
                     </button>
                   ) : null}
-                  {result?.tokenUsage ? (
-                    <p className="mt-2 text-center text-xs text-gray-400">
-                      This evaluation used{" "}
-                      {result.tokenUsage.inputTokens +
-                        result.tokenUsage.outputTokens}{" "}
-                      tokens (est. ${result.tokenUsage.estimatedCostUSD})
-                    </p>
-                  ) : null}
                 </div>
                 <button
                   type="button"
@@ -1239,6 +1239,7 @@ export default function Home() {
           </div>
         </div>
       </section>
+      ) : null}
 
       {/* Bulk — judge mode only */}
       {mode === "judge" ? (
