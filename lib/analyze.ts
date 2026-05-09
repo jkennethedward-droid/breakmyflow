@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import Anthropic, { APIUserAbortError } from "@anthropic-ai/sdk";
 
 import type { GitHubRepoAnalysis } from "@/lib/github";
 
@@ -353,32 +353,46 @@ export async function analyzeSubmission(input: {
     let usedModel: string | null = null;
 
     for (const model of candidates) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
       try {
-        message = await client.messages.create({
-          model,
-          max_tokens: 4096,
-          system,
-          messages: [
-            {
-              role: "user",
-              content: [
-                { type: "text", text: userText },
-                {
-                  type: "image",
-                  source: {
-                    type: "base64",
-                    media_type: "image/jpeg",
-                    data: screenshotBase64,
+        message = await client.messages.create(
+          {
+            model,
+            max_tokens: 4096,
+            system,
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: userText },
+                  {
+                    type: "image",
+                    source: {
+                      type: "base64",
+                      media_type: "image/jpeg",
+                      data: screenshotBase64,
+                    },
                   },
-                },
-              ],
-            },
-          ],
-        });
+                ],
+              },
+            ],
+          },
+          { signal: controller.signal },
+        );
         usedModel = model;
         break;
       } catch (e) {
-        lastError = e;
+        if (
+          e instanceof APIUserAbortError ||
+          (e instanceof Error && e.name === "AbortError")
+        ) {
+          lastError = new Error("Analysis timed out after 30 seconds");
+        } else {
+          lastError = e;
+        }
+      } finally {
+        clearTimeout(timeoutId);
       }
     }
 

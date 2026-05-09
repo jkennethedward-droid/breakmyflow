@@ -1,5 +1,7 @@
 import * as screenshotone from "screenshotone-api-sdk";
 
+const SCREENSHOT_TIMEOUT_MS = 15000; // 15 seconds
+
 function getScreenshotOneClient(): screenshotone.Client {
   const raw = process.env.SCREENSHOTONE_API_KEY;
   if (!raw) {
@@ -29,13 +31,27 @@ export async function captureScreenshot(url: string): Promise<string> {
       .format("jpg")
       .cache(false);
 
-    const imageBlob = await client.take(options);
-    const buffer = Buffer.from(await imageBlob.arrayBuffer());
-    return buffer.toString("base64");
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new Error("Screenshot timed out after 15 seconds")),
+        SCREENSHOT_TIMEOUT_MS,
+      );
+    });
+
+    try {
+      const imageBlob = await Promise.race([
+        client.take(options),
+        timeoutPromise,
+      ]);
+      const buffer = Buffer.from(await imageBlob.arrayBuffer());
+      return buffer.toString("base64");
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    }
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown ScreenshotOne error";
     throw new Error(`Failed to capture screenshot for "${url}": ${message}`);
   }
 }
-

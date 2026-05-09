@@ -2,13 +2,36 @@ import { NextResponse } from "next/server";
 
 import { analyzeSubmission } from "@/lib/analyze";
 import { analyzeGitHub } from "@/lib/github";
+import { checkRateLimit } from "@/lib/ratelimit";
 import { captureScreenshot } from "@/lib/screenshot";
+import { validateGithubUrl, validateUrl } from "@/lib/validate";
 
 function sseData(obj: unknown): string {
   return `data: ${JSON.stringify(obj)}\n\n`;
 }
 
 export async function POST(request: Request) {
+  const ip =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    request.headers.get("x-real-ip") ??
+    "anonymous";
+  const { allowed } = checkRateLimit(ip);
+
+  if (!allowed) {
+    return new Response(
+      JSON.stringify({
+        error: "Rate limit exceeded. Maximum 10 requests per minute.",
+      }),
+      {
+        status: 429,
+        headers: {
+          "Content-Type": "application/json",
+          "X-RateLimit-Remaining": "0",
+        },
+      },
+    );
+  }
+
   let body: Partial<{
     url: string;
     githubUrl?: string;
@@ -33,11 +56,22 @@ export async function POST(request: Request) {
   const customCriteria =
     typeof body.customCriteria === "string" ? body.customCriteria.trim() : "";
 
-  if (!url) {
-    return NextResponse.json(
-      { error: "Missing required field: url" },
-      { status: 400 },
-    );
+  const urlCheck = validateUrl(url);
+  if (!urlCheck.valid) {
+    return new Response(JSON.stringify({ error: urlCheck.error }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (githubUrl) {
+    const githubCheck = validateGithubUrl(githubUrl);
+    if (!githubCheck.valid) {
+      return new Response(JSON.stringify({ error: githubCheck.error }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
   }
 
   const encoder = new TextEncoder();

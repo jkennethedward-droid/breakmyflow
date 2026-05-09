@@ -602,7 +602,7 @@ export default function Home() {
                   <p className="mt-3 text-sm font-medium text-gray-600">
                     Screenshot unavailable
                   </p>
-                ) : (
+                ) : screenshotSrc ? (
                   <img
                     key={screenshotSrc.slice(0, 80)}
                     src={screenshotSrc}
@@ -610,7 +610,7 @@ export default function Home() {
                     className="mt-3 w-full overflow-hidden rounded-xl object-cover object-top"
                     onError={() => setScreenshotLoadFailed(true)}
                   />
-                )
+                ) : null
               ) : null}
             </>
           ) : null}
