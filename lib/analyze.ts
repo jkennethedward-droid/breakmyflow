@@ -342,11 +342,7 @@ export async function analyzeSubmission(input: {
 
     const client = getAnthropicClient();
 
-    const candidates = [
-      "claude-sonnet-4-6",
-      "claude-sonnet-4-5",
-      "claude-sonnet-4-20250514",
-    ] as const;
+    const candidates = ["claude-sonnet-4-5-20251001"] as const;
 
     let lastError: unknown = null;
     let message: Anthropic.Messages.Message | null = null;
