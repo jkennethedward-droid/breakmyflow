@@ -1084,36 +1084,49 @@ export default function Home() {
         </header>
 
         <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-col pt-12 pb-10">
-          <h1 className="max-w-4xl text-6xl font-black leading-tight tracking-tight text-black">
-            You ship it. We try to break it.
-          </h1>
-          <p className="mt-6 max-w-2xl text-base leading-relaxed text-gray-600 sm:text-lg">
-            Real screenshots, real code analysis, real verdicts — in 60
-            seconds.
-          </p>
-          <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:flex-wrap">
-            <button
-              type="button"
-              onClick={() => {
-                setShowForm(true);
-                setMode("builder");
-                scrollToEvaluate();
-              }}
-              className="rounded-full border-2 border-black bg-[#B9FF66] px-8 py-4 text-center text-base font-bold text-black transition hover:opacity-90"
-            >
-              For Builders
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowForm(true);
-                setMode("judge");
-                scrollToEvaluate();
-              }}
-              className="rounded-full border-2 border-black bg-white px-8 py-4 text-center text-base font-bold text-black transition hover:bg-gray-50"
-            >
-              For Judges
-            </button>
+          <div className="flex flex-col gap-10 md:flex-row md:items-center md:justify-between">
+            <div className="flex-1">
+              <h1 className="max-w-4xl text-6xl font-black leading-tight tracking-tight text-black">
+                <span className="block">You ship it.</span>
+                <span className="block">We try to break it.</span>
+              </h1>
+              <p className="mt-6 max-w-2xl text-base leading-relaxed text-gray-600 sm:text-lg">
+                Real screenshots, real code analysis, real verdicts — in 60
+                seconds.
+              </p>
+              <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowForm(true);
+                    setMode("builder");
+                    scrollToEvaluate();
+                  }}
+                  className="rounded-full border-2 border-black bg-[#B9FF66] px-8 py-4 text-center text-base font-bold text-black transition hover:opacity-90"
+                >
+                  For Builders
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowForm(true);
+                    setMode("judge");
+                    scrollToEvaluate();
+                  }}
+                  className="rounded-full border-2 border-black bg-white px-8 py-4 text-center text-base font-bold text-black transition hover:bg-gray-50"
+                >
+                  For Judges
+                </button>
+              </div>
+            </div>
+
+            <div className="hidden w-80 items-center justify-center md:flex xl:w-96">
+              <img
+                src="/chart_transparent.png"
+                alt="Sample evaluation scorecard"
+                className="w-full object-contain drop-shadow-sm"
+              />
+            </div>
           </div>
 
           <div className="mt-8 grid gap-6 md:grid-cols-3">
