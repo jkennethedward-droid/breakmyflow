@@ -2,21 +2,34 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import type { GitHubRepoAnalysis } from "@/lib/github";
 
-type JudgeReport = {
+export type ScorecardSectionBase = {
+  score: number;
+  headline: string;
+  observation: string;
+  flag: string | null;
+};
+
+export type TechnicalCredibilitySection = ScorecardSectionBase & {
+  codeSpecific: string[];
+};
+
+export type VerdictSection = {
+  score: null;
+  headline: string;
+  observation: string;
+  flag: string | null;
+};
+
+export type JudgeReport = {
   overallScore: number;
-  firstImpression: string;
-  topBlockers: Array<{
-    issue: string;
-    severity: "high" | "medium" | "low";
-    fix: string;
-  }>;
-  strengths: string[];
-  judgeVerdict: string;
-  codeInsights: {
-    qualitySignals: string[];
-    completenessScore: number;
-    honestyFlags: string[];
-  } | null;
+  sections: {
+    firstImpression: ScorecardSectionBase;
+    valueProposition: ScorecardSectionBase;
+    demoFlow: ScorecardSectionBase;
+    technicalCredibility: TechnicalCredibilitySection;
+    verdict: VerdictSection;
+  };
+  judgeQuote: string;
 };
 
 let anthropicClient: Anthropic | null = null;
@@ -36,8 +49,6 @@ function extractJsonObject(text: string): unknown {
   try {
     return JSON.parse(trimmed);
   } catch {
-    // Some models occasionally add leading/trailing text. Try to recover by
-    // extracting the first top-level JSON object.
     const start = trimmed.indexOf("{");
     const end = trimmed.lastIndexOf("}");
     if (start === -1 || end === -1 || end <= start) {
@@ -48,21 +59,70 @@ function extractJsonObject(text: string): unknown {
   }
 }
 
-function isJudgeReport(value: unknown): value is JudgeReport {
-  if (!value || typeof value !== "object") return false;
-  const v = value as Partial<JudgeReport>;
-  if (typeof v.overallScore !== "number") return false;
-  if (typeof v.firstImpression !== "string") return false;
-  if (!Array.isArray(v.topBlockers)) return false;
-  if (!Array.isArray(v.strengths)) return false;
-  if (typeof v.judgeVerdict !== "string") return false;
-  if (
-    v.codeInsights !== null &&
-    (typeof v.codeInsights !== "object" || v.codeInsights === undefined)
-  ) {
-    return false;
-  }
-  return true;
+function isNullableString(v: unknown): v is string | null {
+  return v === null || typeof v === "string";
+}
+
+function isStdSection(v: unknown): v is ScorecardSectionBase {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.score === "number" &&
+    typeof o.headline === "string" &&
+    typeof o.observation === "string" &&
+    isNullableString(o.flag)
+  );
+}
+
+function isTechnicalSection(v: unknown): v is TechnicalCredibilitySection {
+  if (!isStdSection(v)) return false;
+  const o = v as Record<string, unknown>;
+  if (!Array.isArray(o.codeSpecific)) return false;
+  return o.codeSpecific.every((x) => typeof x === "string");
+}
+
+function isVerdictSection(v: unknown): v is VerdictSection {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  if (o.score !== null) return false;
+  return (
+    typeof o.headline === "string" &&
+    typeof o.observation === "string" &&
+    isNullableString(o.flag)
+  );
+}
+
+function normalizeJudgeReport(raw: unknown): JudgeReport | null {
+  if (!raw || typeof raw !== "object") return null;
+  const v = raw as Record<string, unknown>;
+  if (typeof v.overallScore !== "number") return null;
+  if (typeof v.judgeQuote !== "string") return null;
+  if (!v.sections || typeof v.sections !== "object") return null;
+  const s = v.sections as Record<string, unknown>;
+
+  if (!isStdSection(s.firstImpression)) return null;
+  if (!isStdSection(s.valueProposition)) return null;
+  if (!isStdSection(s.demoFlow)) return null;
+  if (!isTechnicalSection(s.technicalCredibility)) return null;
+  if (!isVerdictSection(s.verdict)) return null;
+
+  const tech = s.technicalCredibility as TechnicalCredibilitySection;
+  const codeSpecific = tech.codeSpecific.slice(0, 3);
+
+  return {
+    overallScore: v.overallScore,
+    judgeQuote: v.judgeQuote,
+    sections: {
+      firstImpression: s.firstImpression as ScorecardSectionBase,
+      valueProposition: s.valueProposition as ScorecardSectionBase,
+      demoFlow: s.demoFlow as ScorecardSectionBase,
+      technicalCredibility: {
+        ...(s.technicalCredibility as TechnicalCredibilitySection),
+        codeSpecific,
+      },
+      verdict: s.verdict as VerdictSection,
+    },
+  };
 }
 
 export async function analyzeSubmission(input: {
@@ -89,62 +149,80 @@ export async function analyzeSubmission(input: {
     }
 
     const system =
-      "You are an expert hackathon judge. You evaluate live demo submissions quickly, fairly, and concretely. " +
-      "You focus on what a judge can infer from a single above-the-fold screenshot: clarity, UX, value proposition, credibility, and obvious product/technical gaps. " +
-      "You provide actionable feedback with severity and specific fixes. " +
-      "You also evaluate three additional layers when code context is provided: " +
-      "(a) code quality signals (error handling patterns, hardcoded secrets, incomplete/placeholder functions, console.log left in production), " +
-      "(b) completeness signals (real/specific README, placeholder files, whether it looks like a real built product), " +
-      "(c) honesty signals (does code match what demo/README claims).";
+      "You are a senior hackathon judge with experience evaluating hundreds of submissions. " +
+      "You give honest, specific, evidence-based verdicts. You do not give generic feedback. " +
+      "Every observation must be tied to something you actually saw in the screenshot or read in the code. " +
+      "If you cannot find evidence for a claim, do not make it.";
+
+    const modeLine = mode
+      ? `Mode: ${mode === "builder" ? "builder (self-test before judging)" : "judge (official evaluation)"}`
+      : "Mode: not specified";
+
+    const customBlock = customCriteria?.trim()
+      ? `Additional judging criteria: ${customCriteria.trim()}\n`
+      : "";
+
+    const githubBlock = githubAnalysis
+      ? `README (first 3000 chars): ${githubAnalysis.readmeText}\n` +
+        `File tree:\n${githubAnalysis.fileTree.join("\n")}\n` +
+        `package.json: ${githubAnalysis.packageJson ?? "null"}\n` +
+        `Main entry point (${githubAnalysis.mainEntryPoint?.path ?? "null"}): ${githubAnalysis.mainEntryPoint?.content ?? "null"}\n`
+      : "";
 
     const userText =
-      `Evaluation focus: ${focus}\n` +
+      "Evaluate this hackathon submission as a senior judge would.\n\n" +
       `Submission URL: ${url}\n` +
-      (mode
-        ? `Mode: ${mode === "builder" ? "builder (self-test before judging)" : "judge (official evaluation)"}\n`
-        : "") +
+      `Evaluation Focus: ${focus}\n` +
+      `${modeLine}\n` +
       (githubUrl ? `GitHub Repo URL: ${githubUrl}\n` : "") +
-      (customCriteria?.trim()
-        ? `Additional judging criteria from the organiser: ${customCriteria.trim()}\n`
-        : "") +
-      (githubAnalysis
-        ? "\nGitHub Analysis:\n" +
-          `- README: ${githubAnalysis.readmeText}\n` +
-          `- File tree:\n${githubAnalysis.fileTree.join("\n")}\n` +
-          `- package.json: ${githubAnalysis.packageJson ?? "null"}\n` +
-          `- Main entry point (${githubAnalysis.mainEntryPoint?.path ?? "null"}): ${
-            githubAnalysis.mainEntryPoint?.content ?? "null"
-          }\n`
-        : "") +
-      "\nAnalyze the screenshot image provided. " +
-      "Return ONLY a JSON object with this exact structure:\n" +
-      '{\n' +
-      '  "overallScore": number from 1-10,\n' +
-      '  "firstImpression": string (2-3 sentences),\n' +
-      '  "topBlockers": [\n' +
-      '    { "issue": string, "severity": "high" | "medium" | "low", "fix": string }\n' +
-      "  ] (max 3),\n" +
-      '  "strengths": [string] (max 3),\n' +
-      '  "judgeVerdict": string (one punchy sentence a judge would say out loud),\n' +
-      '  "codeInsights": {\n' +
-      '    "qualitySignals": [string] (max 3 issues found),\n' +
-      '    "completenessScore": number 1-10,\n' +
-      '    "honestyFlags": [string] (max 3 mismatches between claims and code)\n' +
-      "  } | null\n" +
-      "}\n" +
-      (githubAnalysis
-        ? "Use the GitHub Analysis context to populate codeInsights.\n"
-        : "No GitHub analysis is provided. Set codeInsights to null.\n") +
+      (customBlock ? `\n${customBlock}` : "") +
+      (githubBlock ? `\n${githubBlock}\n` : "") +
+      "\nAnalyse the screenshot provided. Then return ONLY a valid JSON object with exactly this structure, no markdown, no preamble:\n\n" +
+      "{\n" +
+      '  "overallScore": number (1-10),\n' +
+      '  "sections": {\n' +
+      '    "firstImpression": {\n' +
+      '      "score": number (1-10),\n' +
+      '      "headline": string (one sharp sentence -- what a judge says after 3 seconds),\n' +
+      '      "observation": string (2-3 sentences of specific evidence-based observations),\n' +
+      '      "flag": string | null (one critical issue if exists, else null)\n' +
+      "    },\n" +
+      '    "valueProposition": {\n' +
+      '      "score": number (1-10),\n' +
+      '      "headline": string,\n' +
+      '      "observation": string,\n' +
+      '      "flag": string | null\n' +
+      "    },\n" +
+      '    "demoFlow": {\n' +
+      '      "score": number (1-10),\n' +
+      '      "headline": string,\n' +
+      '      "observation": string,\n' +
+      '      "flag": string | null\n' +
+      "    },\n" +
+      '    "technicalCredibility": {\n' +
+      '      "score": number (1-10),\n' +
+      '      "headline": string,\n' +
+      '      "observation": string,\n' +
+      '      "flag": string | null,\n' +
+      '      "codeSpecific": [string] (max 3 -- each must name a specific file, line pattern, or finding. No generic observations. Examples of good specifics: "console.log found in app/api/analyze/route.ts line 45", "package.json lists openai as devDependency not production", "README still contains default create-next-app boilerplate text". If no GitHub provided, return empty array.)\n' +
+      "    },\n" +
+      '    "verdict": {\n' +
+      '      "score": null,\n' +
+      '      "headline": string (the one thing that makes or breaks this submission),\n' +
+      '      "observation": string (what this team should do in the next 30 minutes if they want to win),\n' +
+      '      "flag": string | null\n' +
+      "    }\n" +
+      "  },\n" +
+      '  "judgeQuote": string (one punchy sentence a tired judge would actually say out loud, honest and direct)\n' +
+      "}\n\n" +
+      "Be specific. Be honest. Do not soften findings. A generic observation like 'the UI could be improved' is not acceptable -- name exactly what you saw.\n" +
       "Return only valid JSON. No markdown backticks. No preamble.";
 
     const client = getAnthropicClient();
 
     const candidates = [
-      // Newer naming scheme (4.6+)
       "claude-sonnet-4-6",
-      // 4.5 alias (resolves to latest dated snapshot for 4.5, if enabled)
       "claude-sonnet-4-5",
-      // Older pinned ID (kept as a last resort if some accounts still allow it)
       "claude-sonnet-4-20250514",
     ] as const;
 
@@ -156,7 +234,7 @@ export async function analyzeSubmission(input: {
       try {
         message = await client.messages.create({
           model,
-          max_tokens: 1000,
+          max_tokens: 4096,
           system,
           messages: [
             {
@@ -198,17 +276,17 @@ export async function analyzeSubmission(input: {
         .trim() || "";
 
     const parsed = extractJsonObject(text);
-    if (!isJudgeReport(parsed)) {
+    const report = normalizeJudgeReport(parsed);
+    if (!report) {
       throw new Error(
-        `Model returned JSON but not the expected judge schema.${
+        `Model returned JSON but not the expected scorecard schema.${
           usedModel ? ` (model: ${usedModel})` : ""
         }`,
       );
     }
-    return parsed;
+    return report;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Claude evaluation failed: ${message}`);
   }
 }
-

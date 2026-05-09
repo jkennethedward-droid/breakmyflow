@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 function getApiErrorMessage(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
@@ -14,23 +14,37 @@ type ProgressRow = {
   status: "waiting" | "active" | "done";
 };
 
+type ScorecardSectionBase = {
+  score: number;
+  headline: string;
+  observation: string;
+  flag: string | null;
+};
+
+type TechnicalCredibilitySection = ScorecardSectionBase & {
+  codeSpecific: string[];
+};
+
+type VerdictSection = {
+  score: null;
+  headline: string;
+  observation: string;
+  flag: string | null;
+};
+
 type ResultShape = {
   screenshotCaptured?: boolean;
   screenshotError?: string;
+  githubAnalyzed?: boolean;
   overallScore?: number;
-  firstImpression?: string;
-  topBlockers?: Array<{
-    issue: string;
-    severity: "high" | "medium" | "low";
-    fix: string;
-  }>;
-  strengths?: string[];
-  judgeVerdict?: string;
-  codeInsights?: {
-    qualitySignals: string[];
-    completenessScore: number;
-    honestyFlags: string[];
-  } | null;
+  judgeQuote?: string;
+  sections?: {
+    firstImpression: ScorecardSectionBase;
+    valueProposition: ScorecardSectionBase;
+    demoFlow: ScorecardSectionBase;
+    technicalCredibility: TechnicalCredibilitySection;
+    verdict: VerdictSection;
+  };
 };
 
 function initialProgress(): ProgressRow[] {
@@ -44,12 +58,6 @@ function initialProgress(): ProgressRow[] {
 
 function scrollToEvaluate() {
   document.getElementById("evaluate")?.scrollIntoView({ behavior: "smooth" });
-}
-
-function severityBadgeClass(sev: "high" | "medium" | "low") {
-  if (sev === "high") return "bg-red-500 text-white font-bold";
-  if (sev === "medium") return "bg-yellow-400 text-black font-bold";
-  return "bg-gray-300 text-black font-bold";
 }
 
 export default function Home() {
@@ -205,136 +213,29 @@ export default function Home() {
     }
   }
 
-  function renderScoreBlock() {
-    if (!result || typeof result.overallScore !== "number") return null;
+  function renderScorecardSection(
+    label: string,
+    section: ScorecardSectionBase,
+    extras?: ReactNode,
+  ) {
     return (
-      <div className="flex items-end gap-2">
-        <div className="text-8xl font-black tracking-tight text-[#000000]">
-          {result.overallScore}
-        </div>
-        <div className="pb-4 text-2xl font-bold text-gray-500">/10</div>
-      </div>
-    );
-  }
-
-  function renderVerdict() {
-    if (!result || typeof result.overallScore !== "number") return null;
-    return (
-      <div className="rounded-2xl border-2 border-black bg-[#B9FF66] p-6">
-        <p className="text-lg font-bold italic leading-relaxed text-black">
-          {result.judgeVerdict}
-        </p>
-      </div>
-    );
-  }
-
-  function renderFirstImpression() {
-    if (!result || typeof result.overallScore !== "number") return null;
-    return (
-      <p className="text-base leading-relaxed text-gray-600">
-        {result.firstImpression}
-      </p>
-    );
-  }
-
-  function renderBlockers() {
-    if (
-      !result ||
-      !Array.isArray(result.topBlockers) ||
-      result.topBlockers.length === 0
-    ) {
-      return null;
-    }
-    return (
-      <div className="space-y-3">
-        <h3 className="mb-4 text-sm font-black uppercase tracking-wide text-black">
-          Top blockers
-        </h3>
-        <ul className="space-y-4">
-          {result.topBlockers.slice(0, 3).map((b, idx) => (
-            <li
-              key={`${b.issue}-${idx}`}
-              className="relative rounded-xl border-2 border-black bg-[#F3F3F3] p-4"
-            >
-              <span
-                className={`absolute right-4 top-4 rounded-full px-3 py-1 text-xs font-bold uppercase ${severityBadgeClass(b.severity)}`}
-              >
-                {b.severity}
-              </span>
-              <p className="pr-24 text-base font-bold text-black">{b.issue}</p>
-              <p className="mt-3 text-sm font-semibold text-gray-600">
-                Fix: {b.fix}
-              </p>
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
-  }
-
-  function renderStrengths() {
-    if (!result || !Array.isArray(result.strengths) || result.strengths.length === 0) {
-      return null;
-    }
-    return (
-      <div className="space-y-3">
-        <h3 className="mb-4 text-sm font-black uppercase tracking-wide text-black">
-          Strengths
-        </h3>
-        <ul className="space-y-2 text-base text-black">
-          {result.strengths.slice(0, 3).map((s, idx) => (
-            <li key={`${s}-${idx}`} className="flex gap-3">
-              <span className="font-bold text-[#B9FF66]">✓</span>
-              <span>{s}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
-  }
-
-  function renderCodeInsights() {
-    if (!result?.codeInsights) return null;
-    const ci = result.codeInsights;
-    return (
-      <div className="rounded-2xl border-2 border-black bg-[#191A23] p-6 text-white">
-        <h3 className="mb-4 text-sm font-black uppercase tracking-wide text-white">
-          Code Insights
-        </h3>
-        <div className="mt-4 flex items-baseline justify-between gap-3 rounded-xl border-2 border-white/20 bg-black/20 p-4">
-          <span className="font-bold text-white">Completeness</span>
-          <span className="text-lg font-black text-[#B9FF66]">
-            {ci.completenessScore}/10
+      <div className="rounded-2xl border-2 border-black bg-white p-6">
+        <div className="flex items-start justify-between gap-4">
+          <span className="text-xs font-black uppercase tracking-widest text-gray-400">
+            {label}
           </span>
+          <span className="text-2xl font-black text-black">{section.score}</span>
         </div>
-        {Array.isArray(ci.qualitySignals) && ci.qualitySignals.length > 0 ? (
-          <div className="mt-6 space-y-2">
-            <p className="text-sm font-black uppercase tracking-wide text-white/90">
-              Quality signals
-            </p>
-            <ul className="space-y-2 text-white/90">
-              {ci.qualitySignals.slice(0, 3).map((s, idx) => (
-                <li key={`${s}-${idx}`} className="flex gap-2">
-                  <span className="text-yellow-300">⚠</span>
-                  <span>{s}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        {Array.isArray(ci.honestyFlags) && ci.honestyFlags.length > 0 ? (
-          <div className="mt-6 space-y-2">
-            <p className="text-sm font-black uppercase tracking-wide text-white/90">
-              Claim vs code
-            </p>
-            <ul className="space-y-2">
-              {ci.honestyFlags.slice(0, 3).map((s, idx) => (
-                <li key={`${s}-${idx}`} className="flex gap-2">
-                  <span className="font-bold text-red-400">⚑</span>
-                  <span className="font-bold text-red-400">{s}</span>
-                </li>
-              ))}
-            </ul>
+        <h4 className="mt-2 mb-3 text-xl font-black text-black">
+          {section.headline}
+        </h4>
+        <p className="text-sm leading-relaxed text-gray-600">
+          {section.observation}
+        </p>
+        {extras}
+        {section.flag ? (
+          <div className="mt-4 border-l-4 border-red-500 bg-red-50 px-4 py-2 text-sm font-medium text-red-700">
+            ⚠ {section.flag}
           </div>
         ) : null}
       </div>
@@ -342,31 +243,87 @@ export default function Home() {
   }
 
   function renderResultsBody() {
-    if (!result || typeof result.overallScore !== "number") {
+    if (
+      !result ||
+      typeof result.overallScore !== "number" ||
+      !result.sections
+    ) {
       return <p className="text-gray-600">Evaluation complete.</p>;
     }
 
-    if (mode === "judge") {
-      return (
-        <div className="space-y-8">
-          {renderScoreBlock()}
-          {renderVerdict()}
-          {renderFirstImpression()}
-          {renderBlockers()}
-          {renderCodeInsights()}
-          {renderStrengths()}
+    const { sections, judgeQuote, overallScore, githubAnalyzed } = result;
+    const tech = sections.technicalCredibility;
+    const showCodeSpecific =
+      githubAnalyzed === true &&
+      Array.isArray(tech.codeSpecific) &&
+      tech.codeSpecific.length > 0;
+
+    const techExtras =
+      showCodeSpecific ? (
+        <div className="mt-3 rounded-xl bg-[#191A23] p-4">
+          <ul className="space-y-2">
+            {tech.codeSpecific.map((line, idx) => (
+              <li
+                key={`${line}-${idx}`}
+                className="flex gap-2 text-sm font-mono text-white"
+              >
+                <span className="shrink-0 text-[#B9FF66]">●</span>
+                <span>{line}</span>
+              </li>
+            ))}
+          </ul>
         </div>
-      );
-    }
+      ) : null;
+
+    const v = sections.verdict;
 
     return (
       <div className="space-y-8">
-        {renderBlockers()}
-        {renderStrengths()}
-        {renderCodeInsights()}
-        {renderFirstImpression()}
-        {renderVerdict()}
-        {renderScoreBlock()}
+        <div className="space-y-6">
+          <div className="flex items-end gap-2">
+            <div className="text-8xl font-black text-black">{overallScore}</div>
+            <div className="pb-4 text-2xl font-bold text-gray-500">/10</div>
+          </div>
+          {judgeQuote ? (
+            <div className="rounded-2xl border-2 border-black bg-[#B9FF66] p-6 text-lg font-bold italic text-black">
+              {judgeQuote}
+            </div>
+          ) : null}
+        </div>
+
+        {renderScorecardSection("01 First Impression", sections.firstImpression)}
+        {renderScorecardSection(
+          "02 Value Proposition",
+          sections.valueProposition,
+        )}
+        {renderScorecardSection("03 Demo Flow", sections.demoFlow)}
+        {renderScorecardSection(
+          "04 Technical Credibility",
+          sections.technicalCredibility,
+          techExtras,
+        )}
+
+        <div className="rounded-2xl border-2 border-black bg-[#191A23] p-6 text-white">
+          <div className="flex items-start justify-between gap-4">
+            <span className="text-xs font-black uppercase tracking-widest text-[#B9FF66]">
+              05 Verdict
+            </span>
+          </div>
+          <h4 className="mt-2 mb-3 text-xl font-black text-white">
+            {v.headline}
+          </h4>
+          <p className="text-xs font-black uppercase tracking-widest text-[#B9FF66]">
+            What to do in the next 30 minutes:
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-gray-300">
+            {v.observation}
+          </p>
+          {v.flag ? (
+            <div className="mt-4 border-l-4 border-red-400 bg-red-950/40 px-4 py-2 text-sm font-medium text-red-300">
+              ⚠ {v.flag}
+            </div>
+          ) : null}
+        </div>
       </div>
     );
   }
@@ -381,13 +338,13 @@ export default function Home() {
           </span>
         </header>
 
-        <div className="relative z-10 mx-auto flex max-w-6xl flex-1 flex-col justify-center py-12">
+        <div className="relative z-10 mx-auto flex max-w-6xl flex-1 flex-col justify-center pt-16 pb-12">
           <h1 className="max-w-4xl text-6xl font-black leading-tight tracking-tight text-black">
             You ship it. We try to break it.
           </h1>
           <p className="mt-6 max-w-2xl text-base leading-relaxed text-gray-600 sm:text-lg">
-            Before the judges do. Real screenshots, real code analysis, real
-            verdicts — in 60 seconds.
+            Real screenshots, real code analysis, real verdicts — in 60
+            seconds.
           </p>
           <div className="mt-10 flex flex-col gap-4 sm:flex-row sm:flex-wrap">
             <button
@@ -411,6 +368,9 @@ export default function Home() {
               Evaluate Submissions
             </button>
           </div>
+          <p className="mt-8 text-center text-sm text-gray-400">
+            Used by builders and judges at AI Engineer Hackathon Singapore 2026
+          </p>
         </div>
       </section>
 
