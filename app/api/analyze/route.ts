@@ -28,6 +28,23 @@ export async function POST(request: Request) {
     );
   }
 
+  const apiSecret = process.env.API_SECRET;
+  if (apiSecret) {
+    const authHeader = request.headers.get("authorization");
+    const token = authHeader?.replace("Bearer ", "");
+    if (token !== apiSecret) {
+      // Only enforce if called directly, not from same origin
+      const origin = request.headers.get("origin");
+      const host = request.headers.get("host");
+      if (!origin || !origin.includes(host ?? "")) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    }
+  }
+
   try {
     const body = (await request.json()) as Partial<{
       url: string;
@@ -46,6 +63,15 @@ export async function POST(request: Request) {
         : undefined;
     const customCriteria =
       typeof body.customCriteria === "string" ? body.customCriteria.trim() : "";
+
+    if (customCriteria && customCriteria.length > 500) {
+      return new Response(
+        JSON.stringify({
+          error: "Custom criteria must be 500 characters or less",
+        }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
 
     const urlCheck = validateUrl(url);
     if (!urlCheck.valid) {

@@ -18,13 +18,6 @@ const RADAR_LABEL_TO_SECTION: Record<string, string> = {
   Technical: "technicalCredibility",
 };
 
-function getScreenshotImageSrc(raw: string): string {
-  const t = raw.trim();
-  if (t.startsWith("data:") || /^https?:\/\//i.test(t)) return t;
-  const cleaned = t.replace(/\s/g, "");
-  return `data:image/jpeg;base64,${cleaned}`;
-}
-
 function getApiErrorMessage(data: unknown): string | null {
   if (!data || typeof data !== "object") return null;
   if (!("error" in data)) return null;
@@ -101,23 +94,6 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<ProgressRow[]>(() => initialProgress());
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
-  const [showScreenshot, setShowScreenshot] = useState(false);
-  /** Mirrors API `screenshotBase64` for the latest completed evaluation */
-  const [screenshotBase64, setScreenshotBase64] = useState<string | null>(null);
-  const [screenshotLoadFailed, setScreenshotLoadFailed] = useState(false);
-
-  useEffect(() => {
-    if (screenshotBase64 == null) return;
-    console.log(
-      "[screenshot] typeof:",
-      typeof screenshotBase64,
-      "length:",
-      screenshotBase64.length,
-      "prefix:",
-      screenshotBase64.slice(0, 48),
-    );
-    setScreenshotLoadFailed(false);
-  }, [screenshotBase64]);
 
   function toggleSection(sectionId: string) {
     setExpandedSections((prev) =>
@@ -137,9 +113,6 @@ export default function Home() {
     setIsRunning(false);
     setProgress(initialProgress());
     setExpandedSections([]);
-    setShowScreenshot(false);
-    setScreenshotBase64(null);
-    setScreenshotLoadFailed(false);
   }
 
   async function run() {
@@ -148,9 +121,6 @@ export default function Home() {
     setError(null);
     setProgress(initialProgress());
     setExpandedSections([]);
-    setShowScreenshot(false);
-    setScreenshotBase64(null);
-    setScreenshotLoadFailed(false);
 
     const trimmedUrl = url.trim();
     const trimmedGithubUrl = githubUrl.trim();
@@ -164,7 +134,10 @@ export default function Home() {
     try {
       const res = await fetch("/api/analyze/stream", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer breakmyflow2026",
+        },
         body: JSON.stringify({
           url: trimmedUrl,
           githubUrl: trimmedGithubUrl || undefined,
@@ -239,16 +212,7 @@ export default function Home() {
           } else if (m.event === "result" && m.data && typeof m.data === "object") {
             gotResult = true;
             const payload = m.data as ResultShape;
-            console.log(
-              "[screenshot] payload.screenshotBase64 typeof:",
-              typeof payload.screenshotBase64,
-            );
             setResult(payload);
-            setScreenshotBase64(
-              typeof payload.screenshotBase64 === "string"
-                ? payload.screenshotBase64
-                : null,
-            );
             setProgress((prev) =>
               prev.map((row, i) =>
                 i === 3 ? { ...row, status: "done" as const } : row,
@@ -399,38 +363,37 @@ export default function Home() {
         <button
           type="button"
           onClick={() => toggleSection(sectionId)}
-          className="flex w-full cursor-pointer items-start gap-2 text-left sm:gap-3"
+          className="relative w-full cursor-pointer text-left"
         >
-          <span
-            className={`w-28 shrink-0 pt-0.5 text-xs font-black uppercase tracking-widest sm:w-36 ${
-              isDark ? "text-[#B9FF66]" : "text-gray-400"
-            }`}
-          >
-            {label}
-          </span>
-          <span
-            className={`min-w-0 flex-1 text-center text-sm font-black leading-snug whitespace-normal ${
-              isDark ? "text-white" : "text-black"
-            }`}
-          >
-            {headline}
-          </span>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="space-y-1 pr-12">
+            <div
+              className={`text-xs font-black uppercase tracking-widest ${
+                isDark ? "text-[#B9FF66]" : "text-gray-400"
+              }`}
+            >
+              {label}
+            </div>
+            <div
+              className={`text-base font-black leading-snug ${
+                isDark ? "text-white" : "text-black"
+              }`}
+            >
+              {headline}
+            </div>
             {score != null ? (
-              <span className="rounded-full border border-black bg-[#B9FF66] px-3 py-1 text-sm font-black text-black">
+              <span className="mt-2 inline-block rounded-full border border-black bg-[#B9FF66] px-3 py-1 text-sm font-black text-black">
                 {score}/10
               </span>
             ) : null}
-            <span
-              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-sm font-black ${
-                isDark
-                  ? "border-white text-white"
-                  : "border-black text-black"
-              }`}
-            >
-              {isExpanded ? "−" : "+"}
-            </span>
           </div>
+          <span
+            className={`absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full border-2 text-sm font-black ${
+              isDark ? "border-white text-white" : "border-black text-black"
+            }`}
+            aria-hidden
+          >
+            {isExpanded ? "−" : "+"}
+          </span>
         </button>
       );
     };
@@ -483,11 +446,6 @@ export default function Home() {
       ) : null;
 
     const verdictExpanded = expandedSections.includes("verdict");
-
-    const screenshotSrc =
-      screenshotBase64 && screenshotBase64.length > 0
-        ? getScreenshotImageSrc(screenshotBase64)
-        : null;
 
     return (
       <div className="space-y-8">
@@ -588,39 +546,6 @@ export default function Home() {
             </div>
           </div>
 
-          {screenshotBase64 && screenshotBase64.length > 0 ? (
-            <>
-              <div className="mt-4 flex items-center justify-between gap-4 border-t-2 border-black pt-4">
-                <span className="text-xs font-black uppercase tracking-widest text-gray-400">
-                  LIVE SCREENSHOT
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowScreenshot((s) => !s)}
-                  className="rounded-full border-2 border-black px-4 py-2 text-sm font-bold transition-colors hover:bg-[#B9FF66]"
-                >
-                  {showScreenshot ? "Hide" : "View"}
-                </button>
-              </div>
-              {showScreenshot ? (
-                screenshotLoadFailed ? (
-                  <p className="mt-3 text-sm font-medium text-gray-600">
-                    Screenshot unavailable
-                  </p>
-                ) : (
-                  screenshotSrc && (
-                    <img
-                      key={screenshotSrc.slice(0, 80)}
-                      src={screenshotSrc}
-                      alt="Live capture of submission URL"
-                      className="mt-3 w-full overflow-hidden rounded-xl object-cover object-top"
-                      onError={() => setScreenshotLoadFailed(true)}
-                    />
-                  )
-                )
-              ) : null}
-            </>
-          ) : null}
         </div>
 
         {whiteAccordion(

@@ -1,3 +1,8 @@
+// NOTE: This in-memory rate limiter resets on redeploy and
+// does not persist across multiple Railway instances.
+// For production, replace with Redis-based rate limiting
+// (e.g. Upstash). Sufficient for hackathon/demo use.
+
 const requestCounts = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT = 10; // requests
 const WINDOW_MS = 60 * 60 * 1000; // per hour
